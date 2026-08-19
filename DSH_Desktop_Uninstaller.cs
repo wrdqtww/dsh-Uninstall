@@ -24,8 +24,10 @@ class DSHDesktopUninstaller
     static bool keepOtherUserData = false;
     static bool keepChatData = false;
     static bool keepPlugins = false;
+    static bool keepSkills = false;
     static List<string> keepPresetNames = new List<string>();
     static List<string> keepPluginNames = new List<string>();
+    static List<string> keepSkillNames = new List<string>();
 
     // Multi-variant support: official DSH Desktop, collection/integrated
     // builds (DeepSeek Harness Desktop, dsh-desktop), and lite/simple
@@ -157,6 +159,18 @@ class DSHDesktopUninstaller
         public PluginInfo(string packageName, string displayName)
         {
             PackageName = packageName;
+            DisplayName = displayName;
+        }
+    }
+
+    class SkillInfo
+    {
+        public string Name;
+        public string DisplayName;
+
+        public SkillInfo(string name, string displayName)
+        {
+            Name = name;
             DisplayName = displayName;
         }
     }
@@ -582,7 +596,7 @@ class DSHDesktopUninstaller
         Application.EnableVisualStyles();
         using (RetentionForm form = new RetentionForm())
         {
-            form.SetRetentionOptions(keepAgentPresets, keepRuntime, keepChatData, keepAppSettings, keepModelConfig, keepOtherUserData, keepPlugins, keepPresetNames, keepPluginNames);
+            form.SetRetentionOptions(keepAgentPresets, keepRuntime, keepChatData, keepAppSettings, keepModelConfig, keepOtherUserData, keepPlugins, keepSkills, keepPresetNames, keepPluginNames, keepSkillNames);
 
             if (form.ShowDialog() != DialogResult.OK)
             {
@@ -596,8 +610,10 @@ class DSHDesktopUninstaller
             keepModelConfig = form.KeepModelConfig;
             keepOtherUserData = form.KeepOtherUserData;
             keepPlugins = form.KeepPlugins;
+            keepSkills = form.KeepSkills;
             keepPresetNames = form.KeepPresetNames;
             keepPluginNames = form.KeepPluginNames;
+            keepSkillNames = form.KeepSkillNames;
             useDetectedRunningDsh = form.UseDetectedRunningDsh;
 
             // Second confirmation: show exactly what will be retained before starting.
@@ -718,6 +734,15 @@ class DSHDesktopUninstaller
                     keepPluginNames.Add("@dsh-external/dsh-vision");
                 }
             }
+            else if (arg.Equals("/KeepSkills", StringComparison.OrdinalIgnoreCase) ||
+                     arg.Equals("-KeepSkills", StringComparison.OrdinalIgnoreCase))
+            {
+                keepSkills = true;
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    keepSkillNames = ParsePresetNames(value);
+                }
+            }
             else if (arg.Equals("/KeepAppSettings", StringComparison.OrdinalIgnoreCase) ||
                      arg.Equals("-KeepAppSettings", StringComparison.OrdinalIgnoreCase))
             {
@@ -752,6 +777,7 @@ class DSHDesktopUninstaller
                 keepAppSettings = true;
                 keepModelConfig = true;
                 keepOtherUserData = true;
+                keepSkills = true;
             }
             else if (arg.Equals("/DetectRunning", StringComparison.OrdinalIgnoreCase) ||
                      arg.Equals("-DetectRunning", StringComparison.OrdinalIgnoreCase) ||
@@ -926,6 +952,36 @@ class DSHDesktopUninstaller
         return sb.ToString();
     }
 
+    static List<SkillInfo> DetectSkills()
+    {
+        List<SkillInfo> result = new List<SkillInfo>();
+        string skillsRoot = Path.Combine(DshHome, "skills");
+        if (!Directory.Exists(skillsRoot))
+        {
+            return result;
+        }
+
+        // Skills are stored under .dsh\skills as either a subfolder (containing
+        // SKILL.md etc.) or a plain .md file directly under the skills root.
+        foreach (string dir in Directory.GetDirectories(skillsRoot))
+        {
+            string name = Path.GetFileName(dir);
+            result.Add(new SkillInfo(name, name));
+        }
+
+        foreach (string file in Directory.GetFiles(skillsRoot))
+        {
+            string ext = Path.GetExtension(file);
+            if (!string.Equals(ext, ".md", StringComparison.OrdinalIgnoreCase)) continue;
+            string name = Path.GetFileNameWithoutExtension(file);
+            result.Add(new SkillInfo(name, name));
+        }
+
+        result.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+        return result;
+    }
+
+
     static string FindPluginSourceDir(string webModules, string packageName)
     {
         string relative = packageName.Replace('/', Path.DirectorySeparatorChar);
@@ -1084,6 +1140,17 @@ class DSHDesktopUninstaller
             else
             {
                 kept.Add("插件 (all)");
+            }
+        }
+        if (keepSkills)
+        {
+            if (keepSkillNames.Count > 0)
+            {
+                kept.Add("skills (" + string.Join(", ", keepSkillNames.ToArray()) + ")");
+            }
+            else
+            {
+                kept.Add("skills (all)");
             }
         }
         return kept.Count == 0 ? "(none)" : string.Join(", ", kept.ToArray());
@@ -1518,8 +1585,10 @@ class DSHDesktopUninstaller
 
         string presetRoot = Path.Combine(DshHome, ".agent-presets");
         string sessionsDir = Path.Combine(DshHome, "sessions");
+        string skillsDir = Path.Combine(DshHome, "skills");
         bool keepPresets = keepAgentPresets && Directory.Exists(presetRoot);
         bool keepChat = keepChatData && Directory.Exists(sessionsDir);
+        bool keepSkillsData = keepSkills && Directory.Exists(skillsDir);
         bool keepOther = keepOtherUserData;
 
         if (keepPresets)
@@ -1537,6 +1606,18 @@ class DSHDesktopUninstaller
         if (keepChat)
         {
             Log("  Keeping chat data (sessions): " + sessionsDir);
+        }
+        if (keepSkillsData)
+        {
+            if (keepSkillNames.Count == 0)
+            {
+                Log("  Keeping all skills: " + skillsDir);
+            }
+            else
+            {
+                Log("  Keeping selected skills: " + string.Join(", ", keepSkillNames.ToArray()));
+                KeepSelectedSkills(skillsDir, keepSkillNames);
+            }
         }
         if (keepAppSettings)
         {
@@ -1559,6 +1640,10 @@ class DSHDesktopUninstaller
                 continue;
             }
             if (keepChat && dir.Equals(sessionsDir, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            if (keepSkillsData && dir.Equals(skillsDir, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
@@ -1587,7 +1672,7 @@ class DSHDesktopUninstaller
             DeleteFileIfExists(file);
         }
 
-        if (!keepPresets && !keepChat && !keepOther && !keepAppSettings && !keepModelConfig)
+        if (!keepPresets && !keepChat && !keepOther && !keepAppSettings && !keepModelConfig && !keepSkillsData)
         {
             // Nothing is being retained under .dsh: remove the data root too.
             DeleteDirectoryWithRetry(DshHome);
@@ -1617,6 +1702,31 @@ class DSHDesktopUninstaller
         foreach (string file in Directory.GetFiles(presetRoot))
         {
             DeleteFileIfExists(file);
+        }
+    }
+
+    static void KeepSelectedSkills(string skillsRoot, List<string> names)
+    {
+        HashSet<string> keep = new HashSet<string>(names, StringComparer.OrdinalIgnoreCase);
+
+        foreach (string dir in Directory.GetDirectories(skillsRoot))
+        {
+            string name = Path.GetFileName(dir);
+            if (!keep.Contains(name))
+            {
+                Log("  Removing skill: " + name);
+                DeleteDirectoryWithRetry(dir);
+            }
+        }
+
+        foreach (string file in Directory.GetFiles(skillsRoot))
+        {
+            string name = Path.GetFileNameWithoutExtension(file);
+            if (!keep.Contains(name))
+            {
+                Log("  Removing skill: " + name);
+                DeleteFileIfExists(file);
+            }
         }
     }
 
@@ -1756,6 +1866,22 @@ class DSHDesktopUninstaller
                 return Label;
             }
         }
+        private class SkillListItem
+        {
+            public string Name;
+            public string Label;
+
+            public SkillListItem(string name, string label)
+            {
+                Name = name;
+                Label = label;
+            }
+
+            public override string ToString()
+            {
+                return Label;
+            }
+        }
         private class GrayableCheckBox : CheckBox
           {
               protected override void OnPaint(PaintEventArgs e)
@@ -1804,13 +1930,17 @@ class DSHDesktopUninstaller
         private CheckBox chkRuntime;
         private GrayableCheckBox chkPlugins;
         private CheckedListBox clbPlugins;
+        private GrayableCheckBox chkSkills;
+        private CheckedListBox clbSkills;
         private CheckBox chkChatData;
         private CheckBox chkAppSettings;
         private CheckBox chkModelConfig;
         private CheckBox chkOtherUserData;
         private RadioButton rbDetectRunning;
         private RadioButton rbDefault;
+        private bool updatingSkillState;
         private bool updatingPresetState;
+        private bool hasSkills;
         private bool updatingPluginState;
         private bool hasPresets;
         private bool hasPlugins;
@@ -1822,6 +1952,7 @@ class DSHDesktopUninstaller
         public bool KeepModelConfig { get { return chkModelConfig.Checked; } }
         public bool KeepOtherUserData { get { return chkOtherUserData.Checked; } }
         public bool KeepPlugins { get { return chkPlugins.CheckState != CheckState.Unchecked; } }
+        public bool KeepSkills { get { return chkSkills.CheckState != CheckState.Unchecked; } }
         public List<string> KeepPresetNames
         {
             get
@@ -1859,6 +1990,27 @@ class DSHDesktopUninstaller
                     if (plugin != null && !string.IsNullOrEmpty(plugin.Package))
                     {
                         names.Add(plugin.Package);
+                    }
+                }
+                return names;
+            }
+        }
+        public List<string> KeepSkillNames
+        {
+            get
+            {
+                if (chkSkills.CheckState == CheckState.Unchecked)
+                {
+                    return new List<string>();
+                }
+
+                List<string> names = new List<string>();
+                foreach (object item in clbSkills.CheckedItems)
+                {
+                    SkillListItem skill = item as SkillListItem;
+                    if (skill != null && !string.IsNullOrEmpty(skill.Name))
+                    {
+                        names.Add(skill.Name);
                     }
                 }
                 return names;
@@ -1951,6 +2103,45 @@ class DSHDesktopUninstaller
             }
         }
 
+        private void SetAllSkillItems(bool isChecked)
+        {
+            for (int i = 0; i < clbSkills.Items.Count; i++)
+            {
+                clbSkills.SetItemChecked(i, isChecked);
+            }
+        }
+
+        private void UpdateSkillParentState()
+        {
+            if (updatingSkillState) return;
+            updatingSkillState = true;
+            try
+            {
+                int total = clbSkills.Items.Count;
+                if (total > 0)
+                {
+                    int checkedCount = clbSkills.CheckedItems.Count;
+                    if (checkedCount == 0)
+                    {
+                        chkSkills.CheckState = CheckState.Unchecked;
+                    }
+                    else if (checkedCount == total)
+                    {
+                        chkSkills.CheckState = CheckState.Checked;
+                    }
+                    else
+                    {
+                        chkSkills.CheckState = CheckState.Indeterminate;
+                    }
+                }
+                clbSkills.Enabled = chkSkills.CheckState != CheckState.Unchecked && hasSkills;
+            }
+            finally
+            {
+                updatingSkillState = false;
+            }
+        }
+
         private void DrawCheckedListBoxItem(object sender, DrawItemEventArgs e, CheckedListBox list)
         {
             if (e.Index < 0) return;
@@ -1981,7 +2172,7 @@ class DSHDesktopUninstaller
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
         }
 
-        public void SetRetentionOptions(bool presets, bool runtime, bool chatData, bool appSettings, bool modelConfig, bool otherUserData, bool plugins, List<string> presetNames, List<string> pluginNames)
+        public void SetRetentionOptions(bool presets, bool runtime, bool chatData, bool appSettings, bool modelConfig, bool otherUserData, bool plugins, bool skills, List<string> presetNames, List<string> pluginNames, List<string> skillNames)
         {
             chkRuntime.Checked = runtime;
             chkChatData.Checked = chatData;
@@ -2062,8 +2253,45 @@ class DSHDesktopUninstaller
                 updatingPluginState = false;
             }
 
+            updatingSkillState = true;
+            try
+            {
+                if (skills)
+                {
+                    if (skillNames == null || skillNames.Count == 0)
+                    {
+                        SetAllSkillItems(true);
+                        chkSkills.CheckState = CheckState.Checked;
+                    }
+                    else
+                    {
+                        SetAllSkillItems(false);
+                        HashSet<string> skillSet = new HashSet<string>(skillNames, StringComparer.OrdinalIgnoreCase);
+                        for (int i = 0; i < clbSkills.Items.Count; i++)
+                        {
+                            SkillListItem item = clbSkills.Items[i] as SkillListItem;
+                            if (item != null && skillSet.Contains(item.Name))
+                            {
+                                clbSkills.SetItemChecked(i, true);
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    SetAllSkillItems(false);
+                    chkSkills.CheckState = CheckState.Unchecked;
+                }
+            }
+            finally
+            {
+                updatingSkillState = false;
+            }
+
+
             UpdatePresetParentState();
             UpdatePluginParentState();
+            UpdateSkillParentState();
         }
         public RetentionForm()
         {
@@ -2340,27 +2568,134 @@ class DSHDesktopUninstaller
                 }
             }
 
+            chkSkills = new GrayableCheckBox();
+            chkSkills.ThreeState = true;
+            chkSkills.AutoCheck = false;
+            chkSkills.Text = "保留 skills（按名称保留）";
+            chkSkills.SetBounds(18, 310, 440, 24);
+            chkSkills.Click += delegate
+            {
+                chkSkills.CheckState = chkSkills.CheckState == CheckState.Checked
+                    ? CheckState.Unchecked
+                    : CheckState.Checked;
+            };
+            chkSkills.CheckStateChanged += delegate
+            {
+                if (updatingSkillState) return;
+                updatingSkillState = true;
+                try
+                {
+                    if (chkSkills.CheckState == CheckState.Checked)
+                    {
+                        SetAllSkillItems(true);
+                    }
+                    else if (chkSkills.CheckState == CheckState.Unchecked)
+                    {
+                        SetAllSkillItems(false);
+                    }
+                    clbSkills.Enabled = chkSkills.CheckState != CheckState.Unchecked && hasSkills;
+                }
+                finally
+                {
+                    updatingSkillState = false;
+                }
+            };
+
+            clbSkills = new CheckedListBox();
+            clbSkills.SetBounds(38, 336, 420, 90);
+            clbSkills.CheckOnClick = true;
+            clbSkills.IntegralHeight = false;
+            clbSkills.HorizontalScrollbar = true;
+            clbSkills.DrawMode = DrawMode.OwnerDrawFixed;
+            clbSkills.DrawItem += delegate(object sender, DrawItemEventArgs e)
+            {
+                DrawCheckedListBoxItem(sender, e, clbSkills);
+            };
+            clbSkills.ItemCheck += delegate(object sender, ItemCheckEventArgs e)
+            {
+                if (updatingSkillState) return;
+                int total = clbSkills.Items.Count;
+                if (total == 0) return;
+
+                int checkedCount = clbSkills.CheckedItems.Count;
+                if (e.NewValue == CheckState.Checked)
+                {
+                    checkedCount++;
+                }
+                else if (e.NewValue == CheckState.Unchecked && clbSkills.CheckedIndices.Contains(e.Index))
+                {
+                    checkedCount--;
+                }
+
+                CheckState state;
+                if (checkedCount == 0)
+                {
+                    state = CheckState.Unchecked;
+                }
+                else if (checkedCount == total)
+                {
+                    state = CheckState.Checked;
+                }
+                else
+                {
+                    state = CheckState.Indeterminate;
+                }
+
+                if (chkSkills.CheckState != state)
+                {
+                    updatingSkillState = true;
+                    try
+                    {
+                        chkSkills.CheckState = state;
+                    }
+                    finally
+                    {
+                        updatingSkillState = false;
+                    }
+                }
+                clbSkills.Enabled = chkSkills.CheckState != CheckState.Unchecked && hasSkills;
+            };
+
+            List<SkillInfo> detectedSkills = DSHDesktopUninstaller.DetectSkills();
+            hasSkills = detectedSkills.Count > 0;
+            if (detectedSkills.Count == 0)
+            {
+                clbSkills.Items.Add(new SkillListItem("", "（未检测到 skills）"));
+                clbSkills.Enabled = false;
+                chkSkills.Enabled = false;
+            }
+            else
+            {
+                foreach (SkillInfo skill in detectedSkills)
+                {
+                    clbSkills.Items.Add(new SkillListItem(skill.Name, skill.DisplayName));
+                }
+            }
+
+
             chkAppSettings = new CheckBox();
             chkAppSettings.Text = "保留应用设置（settings.yaml）";
-            chkAppSettings.SetBounds(18, 306, 440, 24);
+            chkAppSettings.SetBounds(18, 432, 440, 24);
 
             chkModelConfig = new CheckBox();
             chkModelConfig.Text = "保留模型配置与凭据（.credentials.yaml + settings.yaml 模型部分）";
-            chkModelConfig.SetBounds(18, 334, 440, 24);
+            chkModelConfig.SetBounds(18, 460, 440, 24);
 
             chkOtherUserData = new CheckBox();
             chkOtherUserData.Text = "保留其他 .dsh 数据（graph-memory/storages/super-injector 等）";
-            chkOtherUserData.SetBounds(18, 362, 440, 24);
+            chkOtherUserData.SetBounds(18, 488, 440, 24);
 
             chkRuntime = new CheckBox();
             chkRuntime.Text = "保留 .dsh-runtime（DSH CLI 运行时）";
-            chkRuntime.SetBounds(18, 390, 440, 24);
+            chkRuntime.SetBounds(18, 516, 440, 24);
 
             pnlOptions.Controls.Add(chkPresets);
             pnlOptions.Controls.Add(clbPresets);
             pnlOptions.Controls.Add(chkChatData);
             pnlOptions.Controls.Add(chkPlugins);
             pnlOptions.Controls.Add(clbPlugins);
+            pnlOptions.Controls.Add(chkSkills);
+            pnlOptions.Controls.Add(clbSkills);
             pnlOptions.Controls.Add(chkAppSettings);
             pnlOptions.Controls.Add(chkModelConfig);
             pnlOptions.Controls.Add(chkOtherUserData);

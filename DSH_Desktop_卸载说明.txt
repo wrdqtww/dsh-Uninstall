@@ -28,7 +28,7 @@ DSH Desktop 完全卸载程序 - 使用说明
   7. 删除注册表中的 DSH 卸载项（HKLM/HKCU、32/64 位视图通用扫描）
   8. 删除 HKCU 通知/推送残留
   9. 从系统 PATH 移除 %USERPROFILE%\.dsh-runtime\node
-  10. 清理 %USERPROFILE%\.dsh 用户数据（默认全部删除，包括 .agent-presets 与 sessions 聊天数据）
+  10. 清理 %USERPROFILE%\.dsh 用户数据（默认全部删除，包括 .agent-presets、sessions 聊天数据与 skills 技能）
   11. 清理 %USERPROFILE%\.dsh-runtime（默认删除；如选择保留则不删）
   12. 清理 %TEMP%\dsh* 临时目录
 
@@ -50,13 +50,17 @@ DSH Desktop 完全卸载程序 - 使用说明
   - /KeepModelConfig
         保留模型配置与凭据（.credentials.yaml + settings.yaml 中的模型配置；settings.yaml 与应用设置共用时合并保留）
   - /KeepOtherUserData
-        保留 .dsh 中除预设、聊天、插件、应用设置、模型配置外的其他数据
+        保留 .dsh 中除预设、聊天、插件、skills、应用设置、模型配置外的其他数据
         （graph-memory/storages/super-injector/profiles 等），别名 /KeepOtherData
   - /KeepChatData
         保留聊天数据（.dsh\sessions 对话记录），别名 /KeepChat
+    - /KeepSkills
+          保留 .dsh\skills 全部 skills（技能）
+    - /KeepSkills=名称1,名称2
+          仅保留指定 skills，例如 /KeepSkills=animate,prototype
   - /KeepAll
-        保留所有可选项目：预设、插件、聊天、应用设置、模型配置、其他 .dsh 数据、.dsh-runtime
-        （等价 /KeepPresets /KeepPlugins /KeepChatData /KeepAppSettings /KeepModelConfig /KeepOtherUserData /KeepRuntime）
+        保留所有可选项目：预设、插件、skills、聊天、应用设置、模型配置、其他 .dsh 数据、.dsh-runtime
+        （等价 /KeepPresets /KeepPlugins /KeepSkills /KeepChatData /KeepAppSettings /KeepModelConfig /KeepOtherUserData /KeepRuntime）
 
   卸载模式:
     - 程序识别卸载（/DetectRunning，别名 /DetectDSH）

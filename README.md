@@ -1,18 +1,19 @@
 # dsh-Uninstall
 
-DSH / DeepSeek Harness 桌面端独立卸载器。单个 exe 即可运行，支持官方版、第三方集合版/集成版、极简版/简洁版以及其他未知变体的通用卸载。
+DSH / DeepSeek runtime 桌面端独立卸载器。单个 exe 即可运行，支持官方版、第三方集合版/集成版、极简版/简洁版以及其他未知变体的通用卸载。
 
 ## 特点
 
 - **多桌面端兼容**：不再只认一个注册表 GUID / 安装目录，自动扫描 HKLM/HKCU、32/64 位注册表视图、常见安装位置、运行中进程和已知变体目录。
 - **变体识别**：窗口最上方显示当前识别的桌面端类型：
-  - `官方 deepseek-ai/deepseek-harness`
+  - `官方 deepseek-ai/deepseek-runtime`
   - `第三方 <仓库路径>`
   - `未知 null`
 - **通用卸载兜底**：找不到已知变体时，按注册表卸载项、常见安装路径、进程名、快捷方式名自动清理。
 - **可选保留**：默认删除全部用户数据；可在弹窗中按类别保留：
   - 预设（按实际显示名称勾选）
   - 插件（按 package.json 识别，列表可滚动）
+  - skills（按 `.dsh\skills` 识别，按名称勾选保留）
   - 聊天数据（`.dsh\sessions`）
   - 应用设置（`settings.yaml`）
   - 模型配置与凭据（`.credentials.yaml` + `settings.yaml` 模型部分，共用文件自动合并）
@@ -31,7 +32,7 @@ DSH / DeepSeek Harness 桌面端独立卸载器。单个 exe 即可运行，支�
 ```bat
 Uninstall_DSH_Desktop.exe /S
 Uninstall_DSH_Desktop.exe /S /KeepPresets=agent-sc /KeepChatData /KeepAppSettings /KeepModelConfig
-Uninstall_DSH_Desktop.exe /S /KeepPlugins=@dsh-external/dsh-vision /DetectRunning
+Uninstall_DSH_Desktop.exe /S /KeepSkills=animate,prototype /KeepPlugins=@dsh-external/dsh-vision /DetectRunning
 ```
 
 ### 命令行参数
@@ -43,11 +44,13 @@ Uninstall_DSH_Desktop.exe /S /KeepPlugins=@dsh-external/dsh-vision /DetectRunnin
 | `/KeepPresets=名称1,名称2` | 仅保留指定预设 |
 | `/KeepPlugins` | 保留全部检测到的插件（自动附带保留 `.dsh-runtime`） |
 | `/KeepPlugins=包名1,包名2` | 仅保留指定插件包 |
+| `/KeepSkills` | 保留全部 skills（`.dsh\skills`） |
+| `/KeepSkills=名称1,名称2` | 仅保留指定 skills |
 | `/KeepRuntime` | 保留 `.dsh-runtime` |
 | `/KeepVision` | 兼容旧参数：只保留识图插件 `@dsh-external/dsh-vision` |
 | `/KeepAppSettings` | 保留应用设置 `settings.yaml` |
 | `/KeepModelConfig` | 保留模型配置与凭据（`.credentials.yaml` + `settings.yaml` 模型部分） |
-| `/KeepOtherUserData` | 保留预设/聊天/插件/设置之外的其他 `.dsh` 数据，别名 `/KeepOtherData` |
+| `/KeepOtherUserData` | 保留预设/聊天/插件/skills/设置之外的其他 `.dsh` 数据，别名 `/KeepOtherData` |
 | `/KeepChatData` | 保留聊天数据 `.dsh\sessions`，别名 `/KeepChat` |
 | `/KeepAll` | 保留全部可选项目 |
 | `/DetectRunning` | 识别当前正在运行的 DSH 并卸载其目录，别名 `/DetectDSH` |
@@ -86,5 +89,5 @@ dsh-Uninstall/
 
 ## 注意
 
-- 卸载会删除 DSH / DeepSeek Harness 桌面端产生的用户数据及会话记录，请提前备份需要的内容。
+- 卸载会删除 DSH / DeepSeek runtime 桌面端产生的用户数据及会话记录，请提前备份需要的内容。
 - 运行时只依赖 Windows 自带 .NET Framework 4.x，不需要额外安装或附带 DLL。
