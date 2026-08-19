@@ -1,0 +1,16 @@
+# Build output
+build/
+
+# Runtime logs
+*.log
+
+# Local backups / old artifacts
+backups/
+*.bak
+*.old-*
+uninstaller-test.exe
+
+# Editor/IDE
+.vs/
+.idea/
+*.user
