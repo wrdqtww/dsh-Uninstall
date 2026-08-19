@@ -13,13 +13,16 @@ DSH Desktop 完全卸载程序 - 使用说明
     - 第三方：其他 DSH 桌面仓库均视为第三方，例如 myYangyunfan/dsh_desktop、dataelement/dsh-desktop、
       AmazingBoyCrazy/dsh_desktop、Easyhoov/deepseek-harness-desktop-windows、steven-kid/deepseek-harness-desktop、
       2633352305/DeepSeekHarness-Desktop 等
+        majiayu000/dsh-desk、gxcsoccer/dsh-studio、FlashingChen/dsh-desktop-hub、Lxiayu/DshCockpit、
+        Ackow/dshdesktop-client、ding7015869-alt/dsh-web-desktop、citrusli2026/dsh-electron-shell、
+        hastings0714/dsh-client、zouyuxuan122/Deepseek-runtime-EAC 等
     - 未知：识别不出来时显示 未知 null
     找不到匹配的已知版本时，使用通用卸载逻辑：按注册表卸载项、常见安装位置、进程名、快捷方式名
     自动扫描清理，不再依赖单一卸载 GUID / 安装路径。
 
 卸载时会执行:
   1. 结束所有 DSH 相关进程（安装目录内进程 / DSH Desktop.exe / dsh-desktop.exe /
-     DeepSeek Harness Desktop.exe / deepseek-harness.exe / DSHDesktop.exe / dshdesktop.exe）
+     DeepSeek Harness Desktop.exe / deepseek-harness.exe / DSHDesktop.exe / dshdesktop.exe / deepseek-runtime-desktop.exe / DSH-Desktop.exe / DeepSeek-runtime-Desktop.exe / dsh-desk.exe / dsh-studio.exe / dsh-desktop-hub.exe / dsh-cockpit.exe / dsh-client.exe / dsh-web-desktop.exe / dsh-electron-shell.exe）
   2. 删除检测到的 DSH 程序目录（注册表 + 常见安装位置 + 已知变体目录）
   3. 删除 %LOCALAPPDATA% 下已知更新器/程序目录（dsh-desktop-updater、dsh-launcher-updater、dsh-updater 等）
   4. 删除 %APPDATA% 下 DSH Desktop / dsh-desktop / DeepSeek Harness 等缓存/日志/数据
@@ -29,6 +32,7 @@ DSH Desktop 完全卸载程序 - 使用说明
   8. 删除 HKCU 通知/推送残留
   9. 从系统 PATH 移除 %USERPROFILE%\.dsh-runtime\node
   10. 清理 %USERPROFILE%\.dsh 用户数据（默认全部删除，包括 .agent-presets、sessions 聊天数据与 skills 技能）
+       （skills 技能位于 %USERPROFILE%\.dsh\skills，所有 DSH 桌面端共用同一 DSH_HOME 数据根，无需单独为各变体适配）
   11. 清理 %USERPROFILE%\.dsh-runtime（默认删除；如选择保留则不删）
   12. 清理 %TEMP%\dsh* 临时目录
 

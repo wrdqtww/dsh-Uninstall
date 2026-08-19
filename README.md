@@ -1,18 +1,17 @@
-# dsh-Uninstall
+﻿# dsh-Uninstall
 
-DSH / DeepSeek runtime 桌面端独立卸载器。单个 exe 即可运行，支持官方版、第三方集合版/集成版、极简版/简洁版以及其他未知变体的通用卸载。
+DSH / DeepSeek runtime 桌面端独立卸载器。单个 exe 即可运行，支持官方版、第三方集合版/集成版、简洁版/极简版以及其他未知变体的通用卸载。
 
 ## 特点
 
-- **多桌面端兼容**：不再只认一个注册表 GUID / 安装目录，自动扫描 HKLM/HKCU、32/64 位注册表视图、常见安装位置、运行中进程和已知变体目录。
+- **多桌面端兼容**：按注册表卸载项（HKLM/HKCU、32/64 位视图通用扫描）、常见安装位置、运行中进程、已知变体目录与快捷方式自动检测，不再依赖单一卸载 GUID / 安装路径。
 - **变体识别**：窗口最上方显示当前识别的桌面端类型：
   - `官方 deepseek-ai/deepseek-runtime`
-  - `第三方 <仓库路径>`
-  - `未知 null`
-- **通用卸载兜底**：找不到已知变体时，按注册表卸载项、常见安装路径、进程名、快捷方式名自动清理。
-- **可选保留**：默认删除全部用户数据；可在弹窗中按类别保留：
-  - 预设（按实际显示名称勾选）
-  - 插件（按 package.json 识别，列表可滚动）
+  - `第三方 <仓库路径>`（例如 myYangyunfan/dsh_desktop、dataelement/dsh-desktop、majiayu000/dsh-desk、gxcsoccer/dsh-studio、FlashingChen/dsh-desktop-hub、Lxiayu/DshCockpit 等）
+  - `未知 null`（无法识别时使用通用卸载逻辑）
+- **可选保留**：默认删除全部用户数据，可在弹窗中按类别勾选保留：
+  - 预设（按名称保留，显示实际预设名称）
+  - 插件（按 package.json 识别，列表可滚动，勾选插件自动保留 `.dsh-runtime`）
   - skills（按 `.dsh\skills` 识别，按名称勾选保留）
   - 聊天数据（`.dsh\sessions`）
   - 应用设置（`settings.yaml`）
@@ -20,28 +19,28 @@ DSH / DeepSeek runtime 桌面端独立卸载器。单个 exe 即可运行，支�
   - 其他 `.dsh` 数据
   - `.dsh-runtime`
 - **静默卸载**：`/S` 支持不弹窗执行，并可用命令行参数指定保留项。
-- **日志**：运行后在当前目录生成 `Log.log`。
-- **单文件发布**：最终产物只有一个 `Uninstall_DSH_Desktop.exe`，仅依赖 Windows 自带的 .NET Framework 4.x，不调用任何外部脚本/辅助 exe。
+- **日志**：运行结束后在当前目录生成 `Log.log`，记录卸载过程、保留项与错误。
+- **单文件发布**：最终 `Uninstall_DSH_Desktop.exe` 只依赖 Windows 自带的 .NET Framework 4.x，不调用额外脚本/DLL。
 
 ## 使用
 
-双击 `Uninstall_DSH_Desktop.exe` 打开卸载确认窗口，勾选需要保留的内容后点击“卸载”。
+双击 `Uninstall_DSH_Desktop.exe` 弹出确认窗口，选择卸载模式与可选保留项，点击「卸载」并再次确认后执行。
 
 静默示例：
 
-```bat
+```powershell
 Uninstall_DSH_Desktop.exe /S
-Uninstall_DSH_Desktop.exe /S /KeepPresets=agent-sc /KeepChatData /KeepAppSettings /KeepModelConfig
-Uninstall_DSH_Desktop.exe /S /KeepSkills=animate,prototype /KeepPlugins=@dsh-external/dsh-vision /DetectRunning
+Uninstall_DSH_Desktop.exe /S /KeepPresets=agent-sc /KeepChatData /KeepAppSettings /KeepModelConfig /KeepPlugins=@dsh-external/dsh-vision
+Uninstall_DSH_Desktop.exe /S /KeepSkills=animate,prototype /DetectRunning
 ```
 
-### 命令行参数
+## 命令行参数
 
 | 参数 | 说明 |
 | --- | --- |
 | `/S` | 静默模式，不弹窗 |
 | `/KeepPresets` | 保留全部 `.agent-presets` 预设 |
-| `/KeepPresets=名称1,名称2` | 仅保留指定预设 |
+| `/KeepPresets=名称1,名称2` | 仅保留指定预设目录 |
 | `/KeepPlugins` | 保留全部检测到的插件（自动附带保留 `.dsh-runtime`） |
 | `/KeepPlugins=包名1,包名2` | 仅保留指定插件包 |
 | `/KeepSkills` | 保留全部 skills（`.dsh\skills`） |

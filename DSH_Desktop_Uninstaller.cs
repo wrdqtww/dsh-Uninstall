@@ -40,7 +40,17 @@ class DSHDesktopUninstaller
         "DeepSeek Harness.exe",
         "deepseek-harness.exe",
         "DSHDesktop.exe",
-        "dshdesktop.exe"
+        "dshdesktop.exe",
+        "deepseek-runtime-desktop.exe",
+        "DSH-Desktop.exe",
+        "DeepSeek-runtime-Desktop.exe",
+        "dsh-desk.exe",
+        "dsh-studio.exe",
+        "dsh-desktop-hub.exe",
+        "dsh-cockpit.exe",
+        "dsh-client.exe",
+        "dsh-web-desktop.exe",
+        "dsh-electron-shell.exe"
     };
     static readonly string[] KnownProcessNames = new string[]
     {
@@ -50,7 +60,17 @@ class DSHDesktopUninstaller
         "DeepSeek Harness",
         "deepseek-harness",
         "DSHDesktop",
-        "dshdesktop"
+        "dshdesktop",
+        "deepseek-runtime-desktop",
+        "DSH-Desktop",
+        "DeepSeek-runtime-Desktop",
+        "dsh-desk",
+        "dsh-studio",
+        "dsh-desktop-hub",
+        "dsh-cockpit",
+        "dsh-client",
+        "dsh-web-desktop",
+        "dsh-electron-shell"
     };
     static readonly string[] KnownShortcutNames = new string[]
     {
@@ -59,7 +79,18 @@ class DSHDesktopUninstaller
         "DeepSeek Harness Desktop.lnk",
         "DeepSeek Harness.lnk",
         "DSHDesktop.lnk",
-        "dshdesktop.lnk"
+        "dshdesktop.lnk",
+        "deepseek-runtime.lnk",
+        "deepseek-runtime-desktop.lnk",
+        "DSH-Desktop.lnk",
+        "DeepSeek-runtime-Desktop.lnk",
+        "dsh-desk.lnk",
+        "dsh-studio.lnk",
+        "dsh-desktop-hub.lnk",
+        "dsh-cockpit.lnk",
+        "dsh-client.lnk",
+        "dsh-web-desktop.lnk",
+        "dsh-electron-shell.lnk"
     };
     static readonly string[] KnownUpdaterDirNames = new string[]
     {
@@ -74,7 +105,18 @@ class DSHDesktopUninstaller
         "DeepSeek Harness Desktop",
         "DeepSeek Harness",
         "DSHDesktop",
-        "dshdesktop"
+        "dshdesktop",
+        "deepseek-runtime",
+        "deepseek-runtime-desktop",
+        "DSH-Desktop",
+        "DeepSeek-runtime-Desktop",
+        "dsh-desk",
+        "dsh-studio",
+        "dsh-desktop-hub",
+        "dsh-cockpit",
+        "dsh-client",
+        "dsh-web-desktop",
+        "dsh-electron-shell"
     };
     static readonly string[] KnownLocalAppDataDirNames = new string[]
     {
@@ -84,7 +126,18 @@ class DSHDesktopUninstaller
         "DeepSeek Harness",
         "DSHDesktop",
         "dshdesktop",
-        "dsh-edge-app"
+        "dsh-edge-app",
+        "deepseek-runtime",
+        "deepseek-runtime-desktop",
+        "DSH-Desktop",
+        "DeepSeek-runtime-Desktop",
+        "dsh-desk",
+        "dsh-studio",
+        "dsh-desktop-hub",
+        "dsh-cockpit",
+        "dsh-client",
+        "dsh-web-desktop",
+        "dsh-electron-shell"
     };
 
     static readonly string[] KnownAppIds = new string[]
@@ -430,7 +483,16 @@ class DSHDesktopUninstaller
         if (lower.Contains("lburny") || lower.Contains("dshdesktop")) return "第三方 LBurny/deepseek-harness-desktop";
         if (lower.Contains("deepseek harness desktop")) return "第三方 Easyhoov/deepseek-harness-desktop-windows";
         if (lower.Contains("deepseek-harness")) return "第三方 steven-kid/deepseek-harness-desktop";
+        if (lower.Contains("dsh-desktop-hub")) return "第三方 FlashingChen/dsh-desktop-hub";
+        if (lower.Contains("dsh-desktop-client")) return "第三方 Ackow/dshdesktop-client";
+        if (lower.Contains("deepseek-runtime-eac")) return "第三方 zouyuxuan122/Deepseek-runtime-EAC";
         if (lower.Contains("dsh desktop") || lower.Contains("dsh-desktop")) return "第三方 myYangyunfan/dsh_desktop";
+        if (lower.Contains("dsh-desk")) return "第三方 majiayu000/dsh-desk";
+        if (lower.Contains("dsh-studio")) return "第三方 gxcsoccer/dsh-studio";
+        if (lower.Contains("dsh-cockpit")) return "第三方 Lxiayu/DshCockpit";
+        if (lower.Contains("dsh-web-desktop")) return "第三方 ding7015869-alt/dsh-web-desktop";
+        if (lower.Contains("dsh-electron-shell")) return "第三方 citrusli2026/dsh-electron-shell";
+        if (lower.Contains("dsh-client")) return "第三方 hastings0714/dsh-client";
 
         return string.Empty;
     }
@@ -542,6 +604,12 @@ class DSHDesktopUninstaller
             || value.IndexOf("dsh-desktop", StringComparison.OrdinalIgnoreCase) >= 0
             || value.IndexOf("dshdesktop", StringComparison.OrdinalIgnoreCase) >= 0
             || value.IndexOf("dsh-edge-app", StringComparison.OrdinalIgnoreCase) >= 0
+            || value.IndexOf("dsh-desk", StringComparison.OrdinalIgnoreCase) >= 0
+            || value.IndexOf("dsh-studio", StringComparison.OrdinalIgnoreCase) >= 0
+            || value.IndexOf("dsh-cockpit", StringComparison.OrdinalIgnoreCase) >= 0
+            || value.IndexOf("dsh-client", StringComparison.OrdinalIgnoreCase) >= 0
+            || value.IndexOf("dsh-web-desktop", StringComparison.OrdinalIgnoreCase) >= 0
+            || value.IndexOf("dsh-electron-shell", StringComparison.OrdinalIgnoreCase) >= 0
             || value.IndexOf("DeepSeek Harness Desktop", StringComparison.OrdinalIgnoreCase) >= 0
             || value.IndexOf("DeepSeek Harness", StringComparison.OrdinalIgnoreCase) >= 0
             || value.IndexOf("deepseek-harness", StringComparison.OrdinalIgnoreCase) >= 0;
@@ -555,6 +623,12 @@ class DSHDesktopUninstaller
             || path.IndexOf("dsh-desktop", StringComparison.OrdinalIgnoreCase) >= 0
             || path.IndexOf("dshdesktop", StringComparison.OrdinalIgnoreCase) >= 0
             || path.IndexOf("dsh-edge-app", StringComparison.OrdinalIgnoreCase) >= 0
+            || path.IndexOf("dsh-desk", StringComparison.OrdinalIgnoreCase) >= 0
+            || path.IndexOf("dsh-studio", StringComparison.OrdinalIgnoreCase) >= 0
+            || path.IndexOf("dsh-cockpit", StringComparison.OrdinalIgnoreCase) >= 0
+            || path.IndexOf("dsh-client", StringComparison.OrdinalIgnoreCase) >= 0
+            || path.IndexOf("dsh-web-desktop", StringComparison.OrdinalIgnoreCase) >= 0
+            || path.IndexOf("dsh-electron-shell", StringComparison.OrdinalIgnoreCase) >= 0
             || path.IndexOf("DeepSeek Harness Desktop", StringComparison.OrdinalIgnoreCase) >= 0
             || path.IndexOf("DeepSeek Harness", StringComparison.OrdinalIgnoreCase) >= 0
             || path.IndexOf("deepseek-harness", StringComparison.OrdinalIgnoreCase) >= 0;
