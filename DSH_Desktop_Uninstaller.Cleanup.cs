@@ -114,6 +114,7 @@ partial class DSHDesktopUninstaller
     {
         try
         {
+            Log("  Executing: taskkill.exe " + arguments);
             ProcessStartInfo psi = new ProcessStartInfo("taskkill.exe", arguments);
             psi.UseShellExecute = false;
             psi.CreateNoWindow = true;
@@ -122,8 +123,9 @@ partial class DSHDesktopUninstaller
                 p.WaitForExit(10000);
             }
         }
-        catch
+        catch (Exception ex)
         {
+            Log("  Failed to run taskkill " + arguments + ": " + ex.Message);
         }
     }
 
@@ -191,6 +193,7 @@ partial class DSHDesktopUninstaller
                 }
                 else
                 {
+                    Log("  Retry " + (i + 1) + "/8 for directory: " + dir + " -> " + ex.Message);
                     Thread.Sleep(800);
                 }
             }
@@ -233,15 +236,27 @@ partial class DSHDesktopUninstaller
         if (string.IsNullOrEmpty(file)) return;
         if (!File.Exists(file)) return;
 
-        try
+        for (int i = 0; i < 3; i++)
         {
-            File.Delete(file);
-            Log("  Deleted file: " + file);
-        }
-        catch (Exception ex)
-        {
-            Log("  Failed to delete file: " + file + " -> " + ex.Message);
-            failureCount++;
+            try
+            {
+                File.Delete(file);
+                Log("  Deleted file: " + file);
+                return;
+            }
+            catch (Exception ex)
+            {
+                if (i == 2)
+                {
+                    Log("  Failed to delete file: " + file + " -> " + ex.Message);
+                    failureCount++;
+                }
+                else
+                {
+                    Log("  Retry " + (i + 1) + "/3 for file: " + file + " -> " + ex.Message);
+                    Thread.Sleep(500);
+                }
+            }
         }
     }
 #endregion
@@ -274,7 +289,7 @@ partial class DSHDesktopUninstaller
             Log("  Failed to delete legacy HKLM uninstall key: " + ex.Message);
         }
 
-        foreach (string appId in KnownAppIds)
+        foreach (string appId in TargetAppIds)
         {
             DeleteRegSubKey(Registry.CurrentUser, @"Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\" + appId, "HKCU notification settings");
             DeleteRegSubKey(Registry.CurrentUser, @"Software\Microsoft\Windows\CurrentVersion\PushNotifications\Backup\" + appId, "HKCU push backup");
@@ -324,6 +339,70 @@ partial class DSHDesktopUninstaller
         return false;
     }
 
+    static bool MatchesTargetAppId(string id)
+    {
+        if (string.IsNullOrEmpty(id)) return false;
+        foreach (string known in TargetAppIds)
+        {
+            if (known.Equals(id, StringComparison.OrdinalIgnoreCase) ||
+                id.StartsWith(known + "_", StringComparison.OrdinalIgnoreCase) ||
+                id.StartsWith(known + "-", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool HasVariantProfile()
+    {
+        return variantExeNames != null || variantAppIds != null;
+    }
+
+    static bool IsTargetedUninstallEntry(string keyName, string displayName, string pathForHeuristic)
+    {
+        if (!HasVariantProfile()) return true;
+        if (MatchesTargetAppId(keyName)) return true;
+
+        bool hasNames = (KnownExeNames != null && KnownExeNames.Length > 0) ||
+                        (KnownProcessNames != null && KnownProcessNames.Length > 0);
+        if (hasNames)
+        {
+            if (NameMatcher.ContainsToken(displayName, KnownProcessNames) ||
+                NameMatcher.ContainsToken(displayName, KnownExeNames)) return true;
+            if (NameMatcher.ContainsToken(pathForHeuristic, KnownProcessNames) ||
+                NameMatcher.ContainsToken(pathForHeuristic, KnownExeNames)) return true;
+            if (!string.IsNullOrEmpty(DshInstallDir) &&
+                pathForHeuristic.IndexOf(DshInstallDir.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            return false;
+        }
+
+        return IsDshRelatedName(displayName) || IsDshRelatedPath(pathForHeuristic);
+    }
+
+    static bool IsTargetedRunEntry(string valueName, string value)
+    {
+        if (!HasVariantProfile())
+        {
+            return IsDshRelatedName(valueName) || IsDshRelatedName(value) || IsDshRelatedPath(value);
+        }
+
+        bool hasNames = (KnownExeNames != null && KnownExeNames.Length > 0) ||
+                        (KnownProcessNames != null && KnownProcessNames.Length > 0);
+        if (hasNames)
+        {
+            if (NameMatcher.ContainsToken(valueName, KnownProcessNames) ||
+                NameMatcher.ContainsToken(valueName, KnownExeNames) ||
+                NameMatcher.ContainsToken(value, KnownProcessNames) ||
+                NameMatcher.ContainsToken(value, KnownExeNames)) return true;
+            if (!string.IsNullOrEmpty(DshInstallDir) &&
+                value.IndexOf(DshInstallDir.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            return false;
+        }
+
+        return IsDshRelatedName(valueName) || IsDshRelatedName(value) || IsDshRelatedPath(value);
+    }
+
     static void DeleteMatchingUninstallKeys(RegistryHive hive, RegistryView view, string label)
     {
         try
@@ -336,6 +415,14 @@ partial class DSHDesktopUninstaller
                 foreach (string name in names)
                 {
                     bool matched = false;
+                    string displayName = string.Empty;
+                    string displayIcon = string.Empty;
+                    string uninstallString = string.Empty;
+                    string quietUninstallString = string.Empty;
+                    string installLocation = string.Empty;
+                    string bundleCachePath = string.Empty;
+                    string publisher = string.Empty;
+                    string urlInfoAbout = string.Empty;
                     // Each subkey is handled independently so a single
                     // permission/read failure does not abort the whole scan.
                     try
@@ -343,14 +430,14 @@ partial class DSHDesktopUninstaller
                         using (RegistryKey sub = uninstallRoot.OpenSubKey(name))
                         {
                             if (sub == null) continue;
-                            string displayName = sub.GetValue("DisplayName") as string;
-                            string displayIcon = sub.GetValue("DisplayIcon") as string;
-                            string uninstallString = sub.GetValue("UninstallString") as string;
-                            string quietUninstallString = sub.GetValue("QuietUninstallString") as string;
-                            string installLocation = sub.GetValue("InstallLocation") as string;
-                            string bundleCachePath = sub.GetValue("BundleCachePath") as string;
-                            string publisher = sub.GetValue("Publisher") as string;
-                            string urlInfoAbout = sub.GetValue("URLInfoAbout") as string;
+                            displayName = sub.GetValue("DisplayName") as string;
+                            displayIcon = sub.GetValue("DisplayIcon") as string;
+                            uninstallString = sub.GetValue("UninstallString") as string;
+                            quietUninstallString = sub.GetValue("QuietUninstallString") as string;
+                            installLocation = sub.GetValue("InstallLocation") as string;
+                            bundleCachePath = sub.GetValue("BundleCachePath") as string;
+                            publisher = sub.GetValue("Publisher") as string;
+                            urlInfoAbout = sub.GetValue("URLInfoAbout") as string;
                             matched = IsDshUninstallEntry(displayName, displayIcon, uninstallString, quietUninstallString, installLocation, bundleCachePath, publisher, urlInfoAbout) ||
                                       MatchesKnownAppId(name);
                         }
@@ -359,6 +446,16 @@ partial class DSHDesktopUninstaller
                     {
                         Log("  Failed to read " + label + " uninstall key " + name + ": " + ex.Message);
                         continue;
+                    }
+
+                    if (matched)
+                    {
+                        string pathForHeuristic = (installLocation + "|" + displayIcon + "|" + uninstallString + "|" + quietUninstallString + "|" + bundleCachePath);
+                        if (!IsTargetedUninstallEntry(name, displayName, pathForHeuristic))
+                        {
+                            Log("  Skipping other DSH uninstall key (not the detected variant): " + name + " (" + displayName + ")");
+                            matched = false;
+                        }
                     }
 
                     if (matched)
@@ -479,7 +576,7 @@ partial class DSHDesktopUninstaller
                                 try
                                 {
                                     string value = run.GetValue(valueName, "").ToString();
-                                    if (IsDshRelatedName(valueName) || IsDshRelatedName(value) || IsDshRelatedPath(value))
+                                    if (IsTargetedRunEntry(valueName, value))
                                     {
                                         run.DeleteValue(valueName, false);
                                         Log("  Deleted startup entry (" + subKey + "): " + valueName + " = " + value);

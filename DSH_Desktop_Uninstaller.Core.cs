@@ -11,6 +11,7 @@ using System.Text;
 public class VariantProfile
 {
     public readonly string Repo;
+    public readonly string[] AppIds;
     public readonly string[] ExeNames;
     public readonly string[] ProcessNames;
     public readonly string[] ShortcutNames;
@@ -18,10 +19,11 @@ public class VariantProfile
     public readonly string[] RoamingDirNames;
     public readonly string[] LocalAppDataDirNames;
 
-    public VariantProfile(string repo, string[] exe, string[] proc, string[] shortcuts,
+    public VariantProfile(string repo, string[] appIds, string[] exe, string[] proc, string[] shortcuts,
                           string[] updaters, string[] roaming, string[] local)
     {
         Repo = repo;
+        AppIds = appIds;
         ExeNames = exe;
         ProcessNames = proc;
         ShortcutNames = shortcuts;
@@ -36,22 +38,22 @@ public static class VariantCatalog
 {
     public static readonly List<VariantProfile> Profiles = new List<VariantProfile>()
     {
-        new VariantProfile("deepseek-ai",          new[]{"DSH Desktop.exe","dsh-desktop.exe"}, new[]{"DSH Desktop","dsh-desktop"}, new[]{"DSH Desktop.lnk","dsh-desktop.lnk"}, new[]{"dsh-desktop-updater","dsh-launcher-updater"}, new[]{"dsh-desktop","DSH Desktop"}, new[]{"DSH Desktop","dsh-desktop"}),
-        new VariantProfile("myyangyunfan",         new[]{"DSH Desktop.exe","dsh-desktop.exe"}, new[]{"DSH Desktop","dsh-desktop"}, new[]{"DSH Desktop.lnk","dsh-desktop.lnk"}, new[]{"dsh-desktop-updater","dsh-launcher-updater"}, new[]{"dsh-desktop","DSH Desktop"}, new[]{"DSH Desktop","dsh-desktop"}),
-        new VariantProfile("dataelement",          new[]{"DSH Desktop.exe","dsh-desktop.exe"}, new[]{"DSH Desktop","dsh-desktop"}, new[]{"DSH Desktop.lnk","dsh-desktop.lnk"}, new[]{"dsh-desktop-updater","dsh-launcher-updater"}, new[]{"dsh-desktop","DSH Desktop"}, new[]{"DSH Desktop","dsh-desktop"}),
-        new VariantProfile("zouyuxuan122",         new[]{"Deepseek Harness EAC.exe"}, new[]{"Deepseek Harness EAC"}, new[]{"Deepseek Harness EAC.lnk"}, new[]{"dsh-desktop-updater","dsh-launcher-updater"}, new[]{"Deepseek Harness EAC"}, new[]{"Deepseek Harness EAC"}),
-        new VariantProfile("amazingboycrazy",      new[]{"DeepSeek Harness Desktop.exe"}, new[]{"DeepSeek Harness Desktop"}, new[]{"DeepSeek Harness Desktop.lnk"}, new[]{"dsh-desktop-updater","dsh-launcher-updater","dsh-updater"}, new[]{"DeepSeek Harness Desktop"}, new[]{"DeepSeek Harness Desktop"}),
-        new VariantProfile("easyhoov",             new[]{"DeepSeek Harness Desktop.exe"}, new[]{"DeepSeek Harness Desktop"}, new[]{"DeepSeek Harness Desktop.lnk"}, new[]{"dsh-desktop-updater","dsh-launcher-updater","dsh-updater"}, new[]{"DeepSeek Harness Desktop"}, new[]{"DeepSeek Harness Desktop"}),
-        new VariantProfile("steven-kid",           new[]{"DeepSeek Harness.exe","deepseek-harness.exe"}, new[]{"DeepSeek Harness","deepseek-harness"}, new[]{"DeepSeek Harness.lnk","deepseek-harness.lnk"}, new[]{"dsh-updater","dsh-launcher-updater"}, new[]{"DeepSeek Harness","deepseek-harness"}, new[]{"DeepSeek Harness","deepseek-harness"}),
-        new VariantProfile("lburny",               new[]{"DSHDesktop.exe","dshdesktop.exe"}, new[]{"DSHDesktop","dshdesktop"}, new[]{"DSHDesktop.lnk","dshdesktop.lnk"}, new[]{"dsh-updater"}, new[]{"DSHDesktop","dshdesktop"}, new[]{"DSHDesktop","dshdesktop"}),
-        new VariantProfile("ackow",                new[]{"DSHDesktop.exe","dshdesktop.exe"}, new[]{"DSHDesktop","dshdesktop"}, new[]{"DSHDesktop.lnk","dshdesktop.lnk"}, new string[0], new[]{"DSHDesktop","dshdesktop"}, new[]{"DSHDesktop","dshdesktop"}),
-        new VariantProfile("2633352305",           new string[0], new string[0], new[]{"DeepSeek Harness.lnk"}, new string[0], new string[0], new[]{"dsh-edge-app"}),
-        new VariantProfile("majiayu000",           new[]{"DSH Desk.exe"}, new[]{"DSH Desk"}, new[]{"DSH Desk.lnk"}, new[]{"dsh-updater"}, new[]{"DSH Desk"}, new[]{"DSH Desk"}),
-        new VariantProfile("flashingchen",         new[]{"DSH Desktop Hub.exe"}, new[]{"DSH Desktop Hub"}, new[]{"DSH Desktop Hub.lnk"}, new[]{"dsh-updater"}, new[]{"DSH Desktop Hub"}, new[]{"DSH Desktop Hub"}),
-        new VariantProfile("lxiayu",               new[]{"DshCockpit.exe"}, new[]{"DshCockpit"}, new[]{"DshCockpit.lnk"}, new string[0], new[]{"DshCockpit"}, new[]{"DshCockpit"}),
-        new VariantProfile("ding7015869",          new[]{"DSH-Web.exe"}, new[]{"DSH-Web"}, new[]{"DSH-Web.lnk"}, new string[0], new[]{"DSH-Web"}, new[]{"DSH-Web"}),
-        new VariantProfile("citrusli2026",         new[]{"dsh-desktop.exe"}, new[]{"dsh-desktop"}, new[]{"dsh-desktop.lnk"}, new[]{"dsh-updater"}, new[]{"dsh-desktop"}, new[]{"dsh-desktop"}),
-        new VariantProfile("hastings0714",         new[]{"dsh-client.exe"}, new[]{"dsh-client"}, new[]{"dsh-client.lnk"}, new string[0], new[]{"dsh-client"}, new[]{"dsh-client"}),
+        new VariantProfile("deepseek-ai", new[]{"com.deepseek.dsh.desktop"}, new[]{"DSH Desktop.exe","dsh-desktop.exe"}, new[]{"DSH Desktop","dsh-desktop"}, new[]{"DSH Desktop.lnk","dsh-desktop.lnk"}, new[]{"dsh-desktop-updater","dsh-launcher-updater"}, new[]{"dsh-desktop","DSH Desktop"}, new[]{"DSH Desktop","dsh-desktop"}),
+        new VariantProfile("myyangyunfan", new[]{"com.deepseek.dsh.desktop"}, new[]{"DSH Desktop.exe","dsh-desktop.exe"}, new[]{"DSH Desktop","dsh-desktop"}, new[]{"DSH Desktop.lnk","dsh-desktop.lnk"}, new[]{"dsh-desktop-updater","dsh-launcher-updater"}, new[]{"dsh-desktop","DSH Desktop"}, new[]{"DSH Desktop","dsh-desktop"}),
+        new VariantProfile("dataelement", new[]{"io.dsh.desktop"}, new[]{"DSH Desktop.exe","dsh-desktop.exe"}, new[]{"DSH Desktop","dsh-desktop"}, new[]{"DSH Desktop.lnk","dsh-desktop.lnk"}, new[]{"dsh-desktop-updater","dsh-launcher-updater"}, new[]{"dsh-desktop","DSH Desktop"}, new[]{"DSH Desktop","dsh-desktop"}),
+        new VariantProfile("zouyuxuan122", new[]{"com.deepseek.dsh.desktop"}, new[]{"Deepseek Harness EAC.exe"}, new[]{"Deepseek Harness EAC"}, new[]{"Deepseek Harness EAC.lnk"}, new[]{"dsh-desktop-updater","dsh-launcher-updater"}, new[]{"Deepseek Harness EAC"}, new[]{"Deepseek Harness EAC"}),
+        new VariantProfile("amazingboycrazy", new[]{"io.github.amazingboycrazy.dsh-desktop"}, new[]{"DeepSeek Harness Desktop.exe"}, new[]{"DeepSeek Harness Desktop"}, new[]{"DeepSeek Harness Desktop.lnk"}, new[]{"dsh-desktop-updater","dsh-launcher-updater","dsh-updater"}, new[]{"DeepSeek Harness Desktop"}, new[]{"DeepSeek Harness Desktop"}),
+        new VariantProfile("easyhoov", new[]{"com.deepseek.harness.desktop"}, new[]{"DeepSeek Harness Desktop.exe"}, new[]{"DeepSeek Harness Desktop"}, new[]{"DeepSeek Harness Desktop.lnk"}, new[]{"dsh-desktop-updater","dsh-launcher-updater","dsh-updater"}, new[]{"DeepSeek Harness Desktop"}, new[]{"DeepSeek Harness Desktop"}),
+        new VariantProfile("steven-kid", new[]{"io.github.steven-kid.deepseek-harness-desktop"}, new[]{"DeepSeek Harness.exe","deepseek-harness.exe"}, new[]{"DeepSeek Harness","deepseek-harness"}, new[]{"DeepSeek Harness.lnk","deepseek-harness.lnk"}, new[]{"dsh-updater","dsh-launcher-updater"}, new[]{"DeepSeek Harness","deepseek-harness"}, new[]{"DeepSeek Harness","deepseek-harness"}),
+        new VariantProfile("lburny", new[]{"com.dshdesktop.desktop"}, new[]{"DSHDesktop.exe","dshdesktop.exe"}, new[]{"DSHDesktop","dshdesktop"}, new[]{"DSHDesktop.lnk","dshdesktop.lnk"}, new[]{"dsh-updater"}, new[]{"DSHDesktop","dshdesktop"}, new[]{"DSHDesktop","dshdesktop"}),
+        new VariantProfile("ackow", new string[0], new[]{"DSHDesktop.exe","dshdesktop.exe"}, new[]{"DSHDesktop","dshdesktop"}, new[]{"DSHDesktop.lnk","dshdesktop.lnk"}, new string[0], new[]{"DSHDesktop","dshdesktop"}, new[]{"DSHDesktop","dshdesktop"}),
+        new VariantProfile("2633352305", new string[0], new string[0], new string[0], new[]{"DeepSeek Harness.lnk"}, new string[0], new string[0], new[]{"dsh-edge-app"}),
+        new VariantProfile("majiayu000", new[]{"ai.deepseek.harness.desk"}, new[]{"DSH Desk.exe"}, new[]{"DSH Desk"}, new[]{"DSH Desk.lnk"}, new[]{"dsh-updater"}, new[]{"DSH Desk"}, new[]{"DSH Desk"}),
+        new VariantProfile("flashingchen", new[]{"com.dshdesktophub.app"}, new[]{"DSH Desktop Hub.exe"}, new[]{"DSH Desktop Hub"}, new[]{"DSH Desktop Hub.lnk"}, new[]{"dsh-updater"}, new[]{"DSH Desktop Hub"}, new[]{"DSH Desktop Hub"}),
+        new VariantProfile("lxiayu", new[]{"com.dshcockpit.app"}, new[]{"DshCockpit.exe"}, new[]{"DshCockpit"}, new[]{"DshCockpit.lnk"}, new string[0], new[]{"DshCockpit"}, new[]{"DshCockpit"}),
+        new VariantProfile("ding7015869", new string[0], new[]{"DSH-Web.exe"}, new[]{"DSH-Web"}, new[]{"DSH-Web.lnk"}, new string[0], new[]{"DSH-Web"}, new[]{"DSH-Web"}),
+        new VariantProfile("citrusli2026", new[]{"io.github.citrusli2026.dsh-electron-shell"}, new[]{"dsh-desktop.exe"}, new[]{"dsh-desktop"}, new[]{"dsh-desktop.lnk"}, new[]{"dsh-updater"}, new[]{"dsh-desktop"}, new[]{"dsh-desktop"}),
+        new VariantProfile("hastings0714", new string[0], new[]{"dsh-client.exe"}, new[]{"dsh-client"}, new[]{"dsh-client.lnk"}, new string[0], new[]{"dsh-client"}, new[]{"dsh-client"}),
     };
 
     /// <summary>Returns the first profile whose repo token is contained in the given repo string, or null.</summary>
@@ -216,21 +218,45 @@ public static class LogService
     public static void Initialize(string path)
     {
         available = false;
-        mainPath = path;
+        mainPath = string.Empty;
         copyPath = string.Empty;
+        string[] candidates = new string[] { path, GetExeDirLogPath(), GetCurrentDirLogPath() };
+        foreach (string candidate in candidates)
+        {
+            if (string.IsNullOrEmpty(candidate)) continue;
+            try
+            {
+                string dir = Path.GetDirectoryName(candidate);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                }
+                File.WriteAllText(candidate, "===== DSH Desktop Uninstaller Log " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " =====" + Environment.NewLine);
+                mainPath = candidate;
+                available = true;
+                break;
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    static string GetExeDirLogPath()
+    {
         try
         {
-            string dir = Path.GetDirectoryName(path);
-            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
-            {
-                Directory.CreateDirectory(dir);
-            }
-            File.WriteAllText(path, "===== DSH Desktop Uninstaller Log " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " =====" + Environment.NewLine);
-            available = true;
+            string dir = Path.GetDirectoryName(System.Reflection.Assembly.GetEntryAssembly().Location);
+            if (!string.IsNullOrEmpty(dir)) return Path.Combine(dir, "Log.log");
         }
-        catch
-        {
-        }
+        catch { }
+        return string.Empty;
+    }
+
+    static string GetCurrentDirLogPath()
+    {
+        try { return Path.Combine(Directory.GetCurrentDirectory(), "Log.log"); }
+        catch { return string.Empty; }
     }
 
     public static void SetCopyPath(string path)

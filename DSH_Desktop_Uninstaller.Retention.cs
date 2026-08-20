@@ -497,8 +497,9 @@ partial class DSHDesktopUninstaller
                 DeleteDirectoryWithRetry(d);
             }
         }
-        catch
+        catch (Exception ex)
         {
+            Log("  Failed to scan temp dsh-* directories: " + ex.Message);
         }
     }
 #endregion

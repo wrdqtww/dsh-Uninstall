@@ -8,6 +8,7 @@ DSH Desktop 完全卸载程序 - 使用说明
 用途:
   彻底卸载 DSH Desktop / DeepSeek Harness Desktop 等 DSH 桌面端，清理程序、更新器、缓存、
   快捷方式、注册表和 DSH 用户数据残留。
+  启动后立即请求管理员权限（/help、/DryRun 等只读模式除外），避免后续步骤被权限拦截。
   已兼容 0.3.9 / 0.3.10 官方版，并适配其他 DSH 桌面端：
     - 官方：官方仓库 deepseek-ai/deepseek-harness（窗口显示：官方 deepseek-ai/deepseek-harness）
     - 第三方：其他 DSH 桌面仓库均视为第三方，例如 myYangyunfan/dsh_desktop、dataelement/dsh-desktop、
@@ -19,11 +20,11 @@ DSH Desktop 完全卸载程序 - 使用说明
     - 未知：识别不出来时显示 未知
     找不到匹配的已知版本时，使用通用卸载逻辑：按注册表卸载项、常见安装位置、进程名、快捷方式名
     自动扫描清理，不再依赖单一卸载 GUID / 安装路径。
-    常见目录（如 %USERPROFILE%\DSH Desktop 等）在删除前会验证是否确为 DSH/Electron 安装，
+    常见目录（如 %USERPROFILE%\DSH Desktop、%APPDATA%\DSH Desktop 等）在删除前会验证是否确为 DSH/Electron 安装或 Electron 用户数据目录，
     仅删除确认为 DSH 的目录，避免误删用户同名普通文件夹。
     若未检测到任何 DSH 安装目录，会明确提示“仅清理用户数据与已知额外目录”后再继续。
     识别到已知仓库时（如 myYangyunfan/dsh_desktop、Easyhoov/deepseek-harness-desktop-windows、steven-kid/deepseek-harness-desktop），
-    进程/快捷方式/程序目录的清理目标会自动收窄为该仓库对应的名称；未识别到仓库时使用全量通用列表，避免漏删。
+    进程/快捷方式/程序目录、注册表卸载项、Run 启动项的清理目标会自动收窄为该仓库对应的名称；未识别到仓库时使用全量通用列表，避免漏删和误删其他 DSH 变体。
 
 卸载时会执行:
   1. 结束所有 DSH 相关进程（安装目录内进程 / DSH Desktop.exe / dsh-desktop.exe /
@@ -116,8 +117,8 @@ DSH Desktop 完全卸载程序 - 使用说明
 Uninstall_DSH_Desktop.exe /S /DetectRunning
   静默模式下若发生清理失败（如文件被占用），退出码为非 0，便于脚本判断卸载是否完整。
 
-      运行结束（含报错）后，会在卸载器 exe 所在目录生成 Log.log；
-      如果 exe 所在目录会被本次卸载删除（例如 exe 放在安装目录内），
+      运行结束（含报错）后，会在卸载器 exe 所在目录生成 Log.log；日志会记录命令行、日志路径、执行的命令（taskkill/cmd）、每步删除/重试/报错。
+      如果 exe 所在目录或 /Log= 指定的日志文件会被本次卸载删除（例如 exe 放在安装目录内），
       会在删除前自动把日志副本保存到上一级目录（不可写时保存到桌面），
       并在日志中记录副本路径。也可用 /Log=<完整文件路径> 自行指定日志位置。
 
