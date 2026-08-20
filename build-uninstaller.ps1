@@ -33,7 +33,8 @@ $args = @(
     '/target:winexe',
     "/out:$tmpOut",
     "/r:$fwDir\System.Windows.Forms.dll",
-    "/r:$fwDir\System.Drawing.dll"
+    "/r:$fwDir\System.Drawing.dll",
+    "/r:$fwDir\System.Management.dll"
 ) + $srcFiles
 
 Write-Host "Compiling: $csc" -ForegroundColor Cyan

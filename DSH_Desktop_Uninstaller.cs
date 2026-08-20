@@ -1,12 +1,13 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-
+using System.Runtime.InteropServices;
 using System.Security.Principal;
 using System.Threading;
+using System.Management;
 using System.Drawing;
 using System.Windows.Forms;
 using System.Windows.Forms.VisualStyles;
@@ -16,7 +17,10 @@ class DSHDesktopUninstaller
 {
 #region Fields, Constants & Paths
     static bool silent = false;
-    static List<string> messages = new List<string>();
+    static bool dryRun = false;
+    static bool helpRequested = false;
+    static string manualInstallDir = string.Empty;
+    static ProgressForm progressForm = null;
     static bool keepAgentPresets = false;
     static bool keepRuntime = false;
     static bool keepAppSettings = false;
@@ -32,7 +36,7 @@ class DSHDesktopUninstaller
     // Multi-variant support: official DSH Desktop, collection/integrated
     // builds (DeepSeek Harness Desktop, dsh-desktop), and lite/simple
     // variants (deepseek-harness, dsh-edge-app, DSHDesktop, dshdesktop).
-    static readonly string[] KnownExeNames = new string[]
+    static readonly string[] AllExeNames = new string[]
     {
         "DSH Desktop.exe",
         "dsh-desktop.exe",
@@ -41,7 +45,7 @@ class DSHDesktopUninstaller
         "deepseek-harness.exe",
         "DSHDesktop.exe",
         "dshdesktop.exe",
-        "deepseek-runtime-desktop.exe",
+        "deepseek-harness-desktop.exe",
         "DSH-Desktop.exe",
         "DeepSeek-runtime-Desktop.exe",
         "dsh-desk.exe",
@@ -50,9 +54,14 @@ class DSHDesktopUninstaller
         "dsh-cockpit.exe",
         "dsh-client.exe",
         "dsh-web-desktop.exe",
-        "dsh-electron-shell.exe"
+        "dsh-electron-shell.exe",
+        "Deepseek Harness EAC.exe",
+        "DSH Desktop Hub.exe",
+        "DSH-Web.exe",
+        "DshCockpit.exe",
+        "DSH Desk.exe"
     };
-    static readonly string[] KnownProcessNames = new string[]
+    static readonly string[] AllProcessNames = new string[]
     {
         "DSH Desktop",
         "dsh-desktop",
@@ -61,7 +70,7 @@ class DSHDesktopUninstaller
         "deepseek-harness",
         "DSHDesktop",
         "dshdesktop",
-        "deepseek-runtime-desktop",
+        "deepseek-harness-desktop",
         "DSH-Desktop",
         "DeepSeek-runtime-Desktop",
         "dsh-desk",
@@ -70,9 +79,14 @@ class DSHDesktopUninstaller
         "dsh-cockpit",
         "dsh-client",
         "dsh-web-desktop",
-        "dsh-electron-shell"
+        "dsh-electron-shell",
+        "Deepseek Harness EAC",
+        "DSH Desktop Hub",
+        "DSH-Web",
+        "DshCockpit",
+        "DSH Desk"
     };
-    static readonly string[] KnownShortcutNames = new string[]
+    static readonly string[] AllShortcutNames = new string[]
     {
         "DSH Desktop.lnk",
         "dsh-desktop.lnk",
@@ -80,8 +94,8 @@ class DSHDesktopUninstaller
         "DeepSeek Harness.lnk",
         "DSHDesktop.lnk",
         "dshdesktop.lnk",
-        "deepseek-runtime.lnk",
-        "deepseek-runtime-desktop.lnk",
+        "deepseek-harness.lnk",
+        "deepseek-harness-desktop.lnk",
         "DSH-Desktop.lnk",
         "DeepSeek-runtime-Desktop.lnk",
         "dsh-desk.lnk",
@@ -90,15 +104,20 @@ class DSHDesktopUninstaller
         "dsh-cockpit.lnk",
         "dsh-client.lnk",
         "dsh-web-desktop.lnk",
-        "dsh-electron-shell.lnk"
+        "dsh-electron-shell.lnk",
+        "Deepseek Harness EAC.lnk",
+        "DSH Desktop Hub.lnk",
+        "DSH-Web.lnk",
+        "DshCockpit.lnk",
+        "DSH Desk.lnk"
     };
-    static readonly string[] KnownUpdaterDirNames = new string[]
+    static readonly string[] AllUpdaterDirNames = new string[]
     {
         "dsh-desktop-updater",
         "dsh-launcher-updater",
         "dsh-updater"
     };
-    static readonly string[] KnownRoamingDirNames = new string[]
+    static readonly string[] AllRoamingDirNames = new string[]
     {
         "DSH Desktop",
         "dsh-desktop",
@@ -106,8 +125,8 @@ class DSHDesktopUninstaller
         "DeepSeek Harness",
         "DSHDesktop",
         "dshdesktop",
-        "deepseek-runtime",
-        "deepseek-runtime-desktop",
+        "deepseek-harness",
+        "deepseek-harness-desktop",
         "DSH-Desktop",
         "DeepSeek-runtime-Desktop",
         "dsh-desk",
@@ -116,9 +135,14 @@ class DSHDesktopUninstaller
         "dsh-cockpit",
         "dsh-client",
         "dsh-web-desktop",
-        "dsh-electron-shell"
+        "dsh-electron-shell",
+        "Deepseek Harness EAC",
+        "DSH Desktop Hub",
+        "DSH-Web",
+        "DshCockpit",
+        "DSH Desk"
     };
-    static readonly string[] KnownLocalAppDataDirNames = new string[]
+    static readonly string[] AllLocalAppDataDirNames = new string[]
     {
         "DSH Desktop",
         "dsh-desktop",
@@ -127,8 +151,8 @@ class DSHDesktopUninstaller
         "DSHDesktop",
         "dshdesktop",
         "dsh-edge-app",
-        "deepseek-runtime",
-        "deepseek-runtime-desktop",
+        "deepseek-harness",
+        "deepseek-harness-desktop",
         "DSH-Desktop",
         "DeepSeek-runtime-Desktop",
         "dsh-desk",
@@ -137,8 +161,30 @@ class DSHDesktopUninstaller
         "dsh-cockpit",
         "dsh-client",
         "dsh-web-desktop",
-        "dsh-electron-shell"
+        "dsh-electron-shell",
+        "Deepseek Harness EAC",
+        "DSH Desktop Hub",
+        "DSH-Web",
+        "DshCockpit",
+        "DSH Desk"
     };
+
+    // When a specific variant repo is recognized, these override the broad
+    // "all variants" lists so cleanup targets that variant's known names only.
+    static string[] variantExeNames = null;
+    static string[] variantProcessNames = null;
+    static string[] variantShortcutNames = null;
+    static string[] variantUpdaterDirNames = null;
+    static string[] variantRoamingDirNames = null;
+    static string[] variantLocalAppDataDirNames = null;
+
+    static string[] KnownExeNames { get { return variantExeNames ?? AllExeNames; } }
+    static string[] KnownProcessNames { get { return variantProcessNames ?? AllProcessNames; } }
+    static string[] KnownShortcutNames { get { return variantShortcutNames ?? AllShortcutNames; } }
+    static string[] KnownUpdaterDirNames { get { return variantUpdaterDirNames ?? AllUpdaterDirNames; } }
+    static string[] KnownRoamingDirNames { get { return variantRoamingDirNames ?? AllRoamingDirNames; } }
+    static string[] KnownLocalAppDataDirNames { get { return variantLocalAppDataDirNames ?? AllLocalAppDataDirNames; } }
+
 
     static readonly string[] KnownAppIds = new string[]
     {
@@ -146,7 +192,12 @@ class DSHDesktopUninstaller
         "io.github.amazingboycrazy.dsh-desktop",
         "com.deepseek.harness.desktop",
         "io.dsh.desktop",
-        "io.github.steven-kid.deepseek-harness-desktop"
+        "io.github.steven-kid.deepseek-harness-desktop",
+        "com.dshdesktop.desktop",
+        "ai.deepseek.harness.desk",
+        "com.dshdesktophub.app",
+        "io.github.citrusli2026.dsh-electron-shell",
+        "com.dshcockpit.app"
     };
 
     // Known DSH desktop variants -> GUI label shown at the top of the popup.
@@ -156,18 +207,15 @@ class DSHDesktopUninstaller
         { "io.dsh.desktop", "第三方 dataelement/dsh-desktop" },
         { "io.github.amazingboycrazy.dsh-desktop", "第三方 AmazingBoyCrazy/dsh_desktop" },
         { "com.deepseek.harness.desktop", "第三方 Easyhoov/deepseek-harness-desktop-windows" },
-        { "io.github.steven-kid.deepseek-harness-desktop", "第三方 steven-kid/deepseek-harness-desktop" }
+        { "io.github.steven-kid.deepseek-harness-desktop", "第三方 steven-kid/deepseek-harness-desktop" },
+        { "com.dshdesktop.desktop", "第三方 LBurny/deepseek-harness-desktop" },
+        { "ai.deepseek.harness.desk", "第三方 majiayu000/dsh-desk" },
+        { "com.dshdesktophub.app", "第三方 FlashingChen/dsh-desktop-hub" },
+        { "io.github.citrusli2026.dsh-electron-shell", "第三方 citrusli2026/dsh-electron-shell" },
+        { "com.dshcockpit.app", "第三方 Lxiayu/DshCockpit" },
     };
 
-    static string DshInstallDir = ResolveDshInstallDir();
-    static string DshDesktopUpdaterDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "dsh-desktop-updater");
-    static string DshLauncherUpdaterDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "dsh-launcher-updater");
-    static string DshRoamingDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DSH Desktop");
-    static string DshRoamingDir2 = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "dsh-desktop");
-    static string DesktopShortcut = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "DSH Desktop.lnk");
-    static string StartMenuShortcut = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), @"Microsoft\Windows\Start Menu\Programs\DSH Desktop.lnk");
-    static string CommonDesktopShortcut = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory), "DSH Desktop.lnk");
-    static string CommonStartMenuShortcut = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonStartMenu), @"Programs\DSH Desktop.lnk");
+    static string DshInstallDir = SafeResolveDshInstallDir();
     const string LegacyUninstallRegKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\62276e9d-c5f3-5091-b4ee-c7144d6db450";
     static string MachineEnvKey = @"SYSTEM\CurrentControlSet\Control\Session Manager\Environment";
     static string DshHome = ResolveDshHome();
@@ -175,22 +223,251 @@ class DSHDesktopUninstaller
 
     static string ResolveDshRuntime()
     {
-        string fullHome = Path.GetFullPath(DshHome);
-        string parent = Path.GetDirectoryName(fullHome);
-
-        // DshHome may be a drive root (e.g. "C:\"), where GetDirectoryName
-        // returns null; fall back to the user profile so Combine is safe.
-        if (string.IsNullOrEmpty(parent) || parent == fullHome)
+        try
         {
-            parent = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        }
+            string fullHome = Path.GetFullPath(DshHome);
+            string parent = Path.GetDirectoryName(fullHome);
 
-        return Path.Combine(parent, ".dsh-runtime");
+            // DshHome may be a drive root (e.g. "C:\"), where GetDirectoryName
+            // returns null; fall back to the user profile so Combine is safe.
+            if (string.IsNullOrEmpty(parent) || parent == fullHome)
+            {
+                parent = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            }
+
+            return Path.Combine(parent, ".dsh-runtime");
+        }
+        catch
+        {
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dsh-runtime");
+        }
     }
     static bool useDetectedRunningDsh = false;
-    static string DetectedRunningDshDir = FindRunningDshInstallDir();
-    static string DetectedVariantLabel = ResolveVariantLabel();
-    static string LogFilePath = Path.Combine(Directory.GetCurrentDirectory(), "Log.log");
+    static string selfTempDir = string.Empty;
+    static string DetectedRunningDshDir = SafeFindRunningDshInstallDir();
+    static string DetectedVariantLabel = SafeResolveVariantLabel();
+    static bool VariantProfileApplied = ApplyVariantProfile();
+
+    static string LogFilePath = ResolveLogFilePath();
+
+    // Always write Log.log next to the running uninstaller, never to a
+    // fixed C-drive location. The current directory may be read-only in
+    // some edge cases; Log() swallows the failure so cleanup still runs.
+    static string ResolveLogFilePath()
+    {
+        try
+        {
+            return Path.Combine(Directory.GetCurrentDirectory(), "Log.log");
+        }
+        catch
+        {
+            return "Log.log";
+        }
+    }
+
+    // When a known repository/variant is recognized, narrow the cleanup target
+    // lists to that variant's published names so an unrelated DSH desktop is
+    // not removed together with the detected one. Unknown variants keep the
+    // broad generic lists.
+    static bool ApplyVariantProfile()
+    {
+        try
+        {
+            string repo = ExtractRepoFromLabel(DetectedVariantLabel);
+            if (string.IsNullOrEmpty(repo))
+            {
+                return true;
+            }
+
+            string[] exe = null, proc = null, shortcuts = null, updaters = null, roaming = null, local = null;
+
+            if (repo.IndexOf("deepseek-ai", StringComparison.OrdinalIgnoreCase) >= 0
+                || repo.IndexOf("myyangyunfan", StringComparison.OrdinalIgnoreCase) >= 0
+                || repo.IndexOf("dataelement", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                exe = new string[] { "DSH Desktop.exe", "dsh-desktop.exe" };
+                proc = new string[] { "DSH Desktop", "dsh-desktop" };
+                shortcuts = new string[] { "DSH Desktop.lnk", "dsh-desktop.lnk" };
+                updaters = new string[] { "dsh-desktop-updater", "dsh-launcher-updater" };
+                roaming = new string[] { "dsh-desktop", "DSH Desktop" };
+                local = new string[] { "DSH Desktop", "dsh-desktop" };
+            }
+            else if (repo.IndexOf("zouyuxuan122", StringComparison.OrdinalIgnoreCase) >= 0
+                     || repo.IndexOf("deepseek-harness-eac", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                exe = new string[] { "Deepseek Harness EAC.exe" };
+                proc = new string[] { "Deepseek Harness EAC" };
+                shortcuts = new string[] { "Deepseek Harness EAC.lnk" };
+                updaters = new string[] { "dsh-desktop-updater", "dsh-launcher-updater" };
+                roaming = new string[] { "Deepseek Harness EAC" };
+                local = new string[] { "Deepseek Harness EAC" };
+            }
+            else if (repo.IndexOf("amazingboycrazy", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                exe = new string[] { "DeepSeek Harness Desktop.exe" };
+                proc = new string[] { "DeepSeek Harness Desktop" };
+                shortcuts = new string[] { "DeepSeek Harness Desktop.lnk" };
+                updaters = new string[] { "dsh-desktop-updater", "dsh-launcher-updater", "dsh-updater" };
+                roaming = new string[] { "DeepSeek Harness Desktop" };
+                local = new string[] { "DeepSeek Harness Desktop" };
+            }
+            else if (repo.IndexOf("easyhoov", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                exe = new string[] { "DeepSeek Harness Desktop.exe" };
+                proc = new string[] { "DeepSeek Harness Desktop" };
+                shortcuts = new string[] { "DeepSeek Harness Desktop.lnk" };
+                updaters = new string[] { "dsh-desktop-updater", "dsh-launcher-updater", "dsh-updater" };
+                roaming = new string[] { "DeepSeek Harness Desktop" };
+                local = new string[] { "DeepSeek Harness Desktop" };
+            }
+            else if (repo.IndexOf("steven-kid", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                exe = new string[] { "DeepSeek Harness.exe", "deepseek-harness.exe" };
+                proc = new string[] { "DeepSeek Harness", "deepseek-harness" };
+                shortcuts = new string[] { "DeepSeek Harness.lnk", "deepseek-harness.lnk" };
+                updaters = new string[] { "dsh-updater", "dsh-launcher-updater" };
+                roaming = new string[] { "DeepSeek Harness", "deepseek-harness" };
+                local = new string[] { "DeepSeek Harness", "deepseek-harness" };
+            }
+            else if (repo.IndexOf("lburny", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                exe = new string[] { "DSHDesktop.exe", "dshdesktop.exe" };
+                proc = new string[] { "DSHDesktop", "dshdesktop" };
+                shortcuts = new string[] { "DSHDesktop.lnk", "dshdesktop.lnk" };
+                updaters = new string[] { "dsh-updater" };
+                roaming = new string[] { "DSHDesktop", "dshdesktop" };
+                local = new string[] { "DSHDesktop", "dshdesktop" };
+            }
+            else if (repo.IndexOf("ackow", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                exe = new string[] { "DSHDesktop.exe", "dshdesktop.exe" };
+                proc = new string[] { "DSHDesktop", "dshdesktop" };
+                shortcuts = new string[] { "DSHDesktop.lnk", "dshdesktop.lnk" };
+                updaters = new string[] { };
+                roaming = new string[] { "DSHDesktop", "dshdesktop" };
+                local = new string[] { "DSHDesktop", "dshdesktop" };
+            }
+            else if (repo.IndexOf("2633352305", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                // Edge shortcut variant: no exe of its own, only a wscript launcher.
+                exe = new string[] { };
+                proc = new string[] { };
+                shortcuts = new string[] { "DeepSeek Harness.lnk" };
+                updaters = new string[] { };
+                roaming = new string[] { };
+                local = new string[] { "dsh-edge-app" };
+            }
+            else if (repo.IndexOf("majiayu000", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                exe = new string[] { "DSH Desk.exe" };
+                proc = new string[] { "DSH Desk" };
+                shortcuts = new string[] { "DSH Desk.lnk" };
+                updaters = new string[] { "dsh-updater" };
+                roaming = new string[] { "DSH Desk" };
+                local = new string[] { "DSH Desk" };
+            }
+            else if (repo.IndexOf("flashingchen", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                exe = new string[] { "DSH Desktop Hub.exe" };
+                proc = new string[] { "DSH Desktop Hub" };
+                shortcuts = new string[] { "DSH Desktop Hub.lnk" };
+                updaters = new string[] { "dsh-updater" };
+                roaming = new string[] { "DSH Desktop Hub" };
+                local = new string[] { "DSH Desktop Hub" };
+            }
+            else if (repo.IndexOf("lxiayu", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                exe = new string[] { "DshCockpit.exe" };
+                proc = new string[] { "DshCockpit" };
+                shortcuts = new string[] { "DshCockpit.lnk" };
+                updaters = new string[] { };
+                roaming = new string[] { "DshCockpit" };
+                local = new string[] { "DshCockpit" };
+            }
+            else if (repo.IndexOf("ding7015869", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                exe = new string[] { "DSH-Web.exe" };
+                proc = new string[] { "DSH-Web" };
+                shortcuts = new string[] { "DSH-Web.lnk" };
+                updaters = new string[] { };
+                roaming = new string[] { "DSH-Web" };
+                local = new string[] { "DSH-Web" };
+            }
+            else if (repo.IndexOf("citrusli2026", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                exe = new string[] { "dsh-desktop.exe" };
+                proc = new string[] { "dsh-desktop" };
+                shortcuts = new string[] { "dsh-desktop.lnk" };
+                updaters = new string[] { "dsh-updater" };
+                roaming = new string[] { "dsh-desktop" };
+                local = new string[] { "dsh-desktop" };
+            }
+            else if (repo.IndexOf("hastings0714", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                exe = new string[] { "dsh-client.exe" };
+                proc = new string[] { "dsh-client" };
+                shortcuts = new string[] { "dsh-client.lnk" };
+                updaters = new string[] { };
+                roaming = new string[] { "dsh-client" };
+                local = new string[] { "dsh-client" };
+            }
+
+            if (exe != null)
+            {
+                variantExeNames = exe;
+                variantProcessNames = proc;
+                variantShortcutNames = shortcuts;
+                variantUpdaterDirNames = updaters;
+                variantRoamingDirNames = roaming;
+                variantLocalAppDataDirNames = local;
+                Log("Variant profile applied for: " + repo);
+            }
+        }
+        catch
+        {
+        }
+        return true;
+    }
+    static string ExtractRepoFromLabel(string label)
+    {
+        if (string.IsNullOrWhiteSpace(label)) return string.Empty;
+        string value = label.Trim();
+        if (value.StartsWith("官方 ", StringComparison.OrdinalIgnoreCase))
+        {
+            return value.Substring(3).Trim();
+        }
+        if (value.StartsWith("第三方 ", StringComparison.OrdinalIgnoreCase))
+        {
+            return value.Substring(4).Trim();
+        }
+        return value;
+    }
+
+
+    // Safe static-initialization wrappers: these run before Main, so any
+    // exception must be contained here instead of crashing the uninstaller.
+    static string SafeResolveDshInstallDir()
+    {
+        try { return ResolveDshInstallDir(); }
+        catch { return string.Empty; }
+    }
+
+    static string SafeFindRunningDshInstallDir()
+    {
+        try { return FindRunningDshInstallDir(); }
+        catch { return string.Empty; }
+    }
+
+    static string SafeResolveVariantLabel()
+    {
+        try { return ResolveVariantLabel(); }
+        catch { return "未知"; }
+    }
+
+    // Counts cleanup failures so /S (silent) mode can return a non-zero exit
+    // code that scripts can check.
+    static int failureCount = 0;
+
 
     class PresetInfo
     {
@@ -248,7 +525,7 @@ class DSHDesktopUninstaller
         try
         {
             string currentDir = Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
-            if (!string.IsNullOrEmpty(currentDir) && HasDshExecutable(currentDir))
+            if (!string.IsNullOrEmpty(currentDir) && (HasDshExecutable(currentDir) || HasDshSignature(currentDir)))
             {
                 return currentDir;
             }
@@ -296,16 +573,19 @@ class DSHDesktopUninstaller
                                 string displayName = sub.GetValue("DisplayName") as string;
                                 string displayIcon = sub.GetValue("DisplayIcon") as string;
                                 string uninstallString = sub.GetValue("UninstallString") as string;
+                                string quietUninstallString = sub.GetValue("QuietUninstallString") as string;
                                 string installLocation = sub.GetValue("InstallLocation") as string;
+                                string bundleCachePath = sub.GetValue("BundleCachePath") as string;
                                 string publisher = sub.GetValue("Publisher") as string;
-                                if (!IsDshUninstallEntry(displayName, displayIcon, uninstallString, installLocation, publisher))
+                                string urlInfoAbout = sub.GetValue("URLInfoAbout") as string;
+                                if (!MatchesKnownAppId(name) && !IsDshUninstallEntry(displayName, displayIcon, uninstallString, quietUninstallString, installLocation, bundleCachePath, publisher, urlInfoAbout))
                                 {
                                     continue;
                                 }
 
-                                string dir = ResolveInstallDirFromRegistryEntry(displayIcon, uninstallString, installLocation);
+                                string dir = ResolveInstallDirFromRegistryEntry(displayIcon, uninstallString, quietUninstallString, installLocation, bundleCachePath);
                                 if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) continue;
-                                if (HasDshExecutable(dir))
+                                if (HasDshExecutable(dir) || HasDshSignature(dir))
                                 {
                                     knownExeCandidates.Add(dir);
                                 }
@@ -334,16 +614,27 @@ class DSHDesktopUninstaller
         return string.Empty;
     }
 
-    static string ResolveInstallDirFromRegistryEntry(string displayIcon, string uninstallString, string installLocation)
+    static string ResolveInstallDirFromRegistryEntry(string displayIcon, string uninstallString, string quietUninstallString, string installLocation, string bundleCachePath)
     {
-        string iconDir = ParseDirFromDisplayIcon(displayIcon);
-        if (!string.IsNullOrEmpty(iconDir) && Directory.Exists(iconDir)) return iconDir;
-
+        // Prefer InstallLocation when the installer actually filled it.
         if (!string.IsNullOrWhiteSpace(installLocation))
         {
-            string dir = installLocation.Trim().TrimEnd('\\');
+            string dir = NormalizeRegistryPath(installLocation);
             if (Directory.Exists(dir)) return dir;
         }
+
+        // Some Electron/NSIS installers only expose BundleCachePath.
+        if (!string.IsNullOrWhiteSpace(bundleCachePath))
+        {
+            string dir = NormalizeRegistryPath(bundleCachePath);
+            if (Directory.Exists(dir)) return dir;
+            // BundleCachePath may point at a file inside the app directory.
+            string parent = Path.GetDirectoryName(dir);
+            if (!string.IsNullOrEmpty(parent) && Directory.Exists(parent)) return parent;
+        }
+
+        string iconDir = ParseDirFromDisplayIcon(displayIcon);
+        if (!string.IsNullOrEmpty(iconDir) && Directory.Exists(iconDir)) return iconDir;
 
         string exePath = ParseExePathFromCommandLine(uninstallString);
         if (!string.IsNullOrEmpty(exePath))
@@ -352,7 +643,29 @@ class DSHDesktopUninstaller
             if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir)) return dir;
         }
 
+        // QuietUninstallString sometimes differs from UninstallString (e.g. /S stub).
+        string quietExePath = ParseExePathFromCommandLine(quietUninstallString);
+        if (!string.IsNullOrEmpty(quietExePath))
+        {
+            string dir = Path.GetDirectoryName(quietExePath);
+            if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir)) return dir;
+        }
+
         return string.Empty;
+    }
+
+    static string NormalizeRegistryPath(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+        string path = value.Trim().Trim('"').Trim();
+        try
+        {
+            path = Path.GetFullPath(path);
+        }
+        catch
+        {
+        }
+        return path.TrimEnd('\\');
     }
 
     static string ParseDirFromDisplayIcon(string displayIcon)
@@ -380,7 +693,7 @@ class DSHDesktopUninstaller
                 foreach (string dir in Directory.GetDirectories(root))
                 {
                     string name = Path.GetFileName(dir);
-                    if (IsDshRelatedName(name) && HasDshExecutable(dir))
+                    if (IsDshRelatedName(name) && (HasDshExecutable(dir) || HasDshSignature(dir)))
                     {
                         return dir;
                     }
@@ -407,7 +720,7 @@ class DSHDesktopUninstaller
         }
         foreach (string dir in directCandidates)
         {
-            if (Directory.Exists(dir) && HasDshExecutable(dir))
+            if (Directory.Exists(dir) && (HasDshExecutable(dir) || HasDshSignature(dir)))
             {
                 return dir;
             }
@@ -422,7 +735,7 @@ class DSHDesktopUninstaller
         {
             try
             {
-                string path = p.MainModule.FileName;
+                string path = GetProcessExecutablePath(p);
                 if (string.IsNullOrEmpty(path)) continue;
 
                 string fileName = Path.GetFileName(path);
@@ -443,7 +756,7 @@ class DSHDesktopUninstaller
                 }
 
                 string dir = Path.GetDirectoryName(path);
-                if (!string.IsNullOrEmpty(dir) && HasDshExecutable(dir))
+                if (!string.IsNullOrEmpty(dir) && (HasDshExecutable(dir) || HasDshSignature(dir)))
                 {
                     return dir;
                 }
@@ -466,7 +779,7 @@ class DSHDesktopUninstaller
         string label = ResolveLabelFromPath(dir);
         if (!string.IsNullOrEmpty(label)) return label;
 
-        return "未知 null";
+        return "未知";
     }
 
     static string ResolveLabelFromPath(string path)
@@ -477,26 +790,26 @@ class DSHDesktopUninstaller
         if (lower.Contains("deepseek-ai") || lower.Contains("deepseek_ai")) return "官方 deepseek-ai/deepseek-harness";
         if (lower.Contains("dsh-edge-app")) return "第三方 2633352305/DeepSeekHarness-Desktop";
         if (lower.Contains("dsh-integration")) return "第三方 lai-133/dsh-integration";
+        if (lower.Contains("ackow")) return "第三方 Ackow/dsh-desktop";
+        if (lower.Contains("lburny")) return "第三方 LBurny/deepseek-harness-desktop";
         if (lower.Contains("amazingboycrazy")) return "第三方 AmazingBoyCrazy/dsh_desktop";
         if (lower.Contains("easyhoov") || lower.Contains("deepseek-harness-desktop-windows")) return "第三方 Easyhoov/deepseek-harness-desktop-windows";
-        if (lower.Contains("steven-kid") || lower.Contains("deepseek-harness-desktop")) return "第三方 steven-kid/deepseek-harness-desktop";
-        if (lower.Contains("lburny") || lower.Contains("dshdesktop")) return "第三方 LBurny/deepseek-harness-desktop";
+        if (lower.Contains("deepseek-harness-eac") || lower.Contains("deepseek harness eac")) return "第三方 zouyuxuan122/Deepseek-Harness-EAC";
+        if (lower.Contains("steven-kid")) return "第三方 steven-kid/deepseek-harness-desktop";
         if (lower.Contains("deepseek harness desktop")) return "第三方 Easyhoov/deepseek-harness-desktop-windows";
-        if (lower.Contains("deepseek-harness")) return "第三方 steven-kid/deepseek-harness-desktop";
-        if (lower.Contains("dsh-desktop-hub")) return "第三方 FlashingChen/dsh-desktop-hub";
+        if (lower.Contains("dsh-desktop-hub") || lower.Contains("dsh desktop hub")) return "第三方 FlashingChen/dsh-desktop-hub";
         if (lower.Contains("dsh-desktop-client")) return "第三方 Ackow/dshdesktop-client";
-        if (lower.Contains("deepseek-runtime-eac")) return "第三方 zouyuxuan122/Deepseek-runtime-EAC";
-        if (lower.Contains("dsh desktop") || lower.Contains("dsh-desktop")) return "第三方 myYangyunfan/dsh_desktop";
-        if (lower.Contains("dsh-desk")) return "第三方 majiayu000/dsh-desk";
+        if (lower.Contains("dsh-cockpit") || lower.Contains("dsh cockpit")) return "第三方 Lxiayu/DshCockpit";
         if (lower.Contains("dsh-studio")) return "第三方 gxcsoccer/dsh-studio";
-        if (lower.Contains("dsh-cockpit")) return "第三方 Lxiayu/DshCockpit";
-        if (lower.Contains("dsh-web-desktop")) return "第三方 ding7015869-alt/dsh-web-desktop";
         if (lower.Contains("dsh-electron-shell")) return "第三方 citrusli2026/dsh-electron-shell";
+        if (lower.Contains("dsh-web") || lower.Contains("dsh web")) return "第三方 ding7015869-alt/dsh-web-desktop";
         if (lower.Contains("dsh-client")) return "第三方 hastings0714/dsh-client";
+        if (lower.Contains("deepseek-harness")) return "第三方 steven-kid/deepseek-harness-desktop";
+        if (lower.Contains("dsh desktop") || lower.Contains("dsh-desktop")) return "第三方 myYangyunfan/dsh_desktop";
+        if (lower.Contains("dsh-desk") || lower.Contains("dsh desk")) return "第三方 majiayu000/dsh-desk";
 
         return string.Empty;
     }
-
     static string ResolveVariantLabelFromRegistry()
     {
         RegistryHive[] hives = new RegistryHive[] { RegistryHive.LocalMachine, RegistryHive.CurrentUser };
@@ -516,31 +829,20 @@ class DSHDesktopUninstaller
                             using (RegistryKey sub = uninstallRoot.OpenSubKey(name))
                             {
                                 if (sub == null) continue;
-                                string label;
-                                if (KnownAppIdLabels.TryGetValue(name, out label)) return label;
 
                                 string displayName = sub.GetValue("DisplayName") as string;
                                 string displayIcon = sub.GetValue("DisplayIcon") as string;
                                 string uninstallString = sub.GetValue("UninstallString") as string;
+                                string quietUninstallString = sub.GetValue("QuietUninstallString") as string;
                                 string installLocation = sub.GetValue("InstallLocation") as string;
+                                string bundleCachePath = sub.GetValue("BundleCachePath") as string;
                                 string publisher = sub.GetValue("Publisher") as string;
-                                if (!IsDshUninstallEntry(displayName, displayIcon, uninstallString, installLocation, publisher)) continue;
+                                string urlInfoAbout = sub.GetValue("URLInfoAbout") as string;
+                                if (!IsDshUninstallEntry(displayName, displayIcon, uninstallString, quietUninstallString, installLocation, bundleCachePath, publisher, urlInfoAbout)) continue;
 
-                                if (IsDshRelatedName(displayName))
-                                {
-                                    if (displayName.IndexOf("DeepSeek Harness Desktop", StringComparison.OrdinalIgnoreCase) >= 0)
-                                        return "第三方 Easyhoov/deepseek-harness-desktop-windows";
-                                    if (displayName.IndexOf("DeepSeek Harness", StringComparison.OrdinalIgnoreCase) >= 0)
-                                        return "第三方 steven-kid/deepseek-harness-desktop";
-                                    if (displayName.IndexOf("DSH Desktop", StringComparison.OrdinalIgnoreCase) >= 0)
-                                        return "第三方 myYangyunfan/dsh_desktop";
-                                    if (displayName.IndexOf("dsh-desktop", StringComparison.OrdinalIgnoreCase) >= 0)
-                                        return "第三方 myYangyunfan/dsh_desktop";
-                                }
-
-                                string pathForHeuristic = (installLocation + "|" + displayIcon + "|" + uninstallString).ToLowerInvariant();
-                                string heuristicLabel = ResolveLabelFromPath(pathForHeuristic);
-                                if (!string.IsNullOrEmpty(heuristicLabel)) return heuristicLabel;
+                                string pathForHeuristic = (installLocation + "|" + displayIcon + "|" + uninstallString + "|" + quietUninstallString + "|" + bundleCachePath);
+                                string label = ResolveVariantLabelFromRegistryEntry(name, displayName, publisher, urlInfoAbout, pathForHeuristic);
+                                if (!string.IsNullOrEmpty(label)) return label;
                             }
                         }
                     }
@@ -553,6 +855,60 @@ class DSHDesktopUninstaller
         return string.Empty;
     }
 
+    static string ResolveVariantLabelFromRegistryEntry(string keyName, string displayName, string publisher, string urlInfoAbout, string pathForHeuristic)
+    {
+        // 1) Display names that are unique to one repo win first (several repos
+        //    share appIds or contain each other's substrings).
+        if (!string.IsNullOrWhiteSpace(displayName))
+        {
+            string dn = displayName.Trim();
+            if (dn.IndexOf("EAC", StringComparison.OrdinalIgnoreCase) >= 0) return "第三方 zouyuxuan122/Deepseek-Harness-EAC";
+            if (dn.IndexOf("DSH Desktop Hub", StringComparison.OrdinalIgnoreCase) >= 0) return "第三方 FlashingChen/dsh-desktop-hub";
+            if (dn.IndexOf("DshCockpit", StringComparison.OrdinalIgnoreCase) >= 0) return "第三方 Lxiayu/DshCockpit";
+            if (dn.IndexOf("DSH-Web", StringComparison.OrdinalIgnoreCase) >= 0 || dn.IndexOf("dsh-web", StringComparison.OrdinalIgnoreCase) >= 0) return "第三方 ding7015869-alt/dsh-web-desktop";
+            if (dn.IndexOf("DSHDesktop", StringComparison.OrdinalIgnoreCase) >= 0) return "第三方 Ackow/dsh-desktop";
+            if (dn.IndexOf("DeepSeek Harness Desktop", StringComparison.OrdinalIgnoreCase) >= 0) return "第三方 Easyhoov/deepseek-harness-desktop-windows";
+            if (dn.IndexOf("DeepSeek Harness", StringComparison.OrdinalIgnoreCase) >= 0) return "第三方 steven-kid/deepseek-harness-desktop";
+            if (dn.IndexOf("dsh-desktop", StringComparison.OrdinalIgnoreCase) >= 0) return "第三方 myYangyunfan/dsh_desktop";
+            if (dn.IndexOf("DSH Desktop", StringComparison.OrdinalIgnoreCase) >= 0) return "第三方 myYangyunfan/dsh_desktop";
+            if (dn.IndexOf("DSH Desk", StringComparison.OrdinalIgnoreCase) >= 0) return "第三方 majiayu000/dsh-desk";
+        }
+
+        // 2) Exact uninstall-key appId is authoritative for every repo except
+        //    com.deepseek.dsh.desktop, which both official DSH Desktop and the
+        //    EAC variant use; EAC was already handled above by display name.
+        if (!string.IsNullOrWhiteSpace(keyName))
+        {
+            string label;
+            if (KnownAppIdLabels.TryGetValue(keyName, out label)) return label;
+        }
+
+        // 3) Publisher / URL hints.
+        if (!string.IsNullOrWhiteSpace(urlInfoAbout))
+        {
+            string lowerUrl = urlInfoAbout.ToLowerInvariant();
+            if (lowerUrl.Contains("easyhoov")) return "第三方 Easyhoov/deepseek-harness-desktop-windows";
+            if (lowerUrl.Contains("steven-kid")) return "第三方 steven-kid/deepseek-harness-desktop";
+            if (lowerUrl.Contains("amazingboycrazy")) return "第三方 AmazingBoyCrazy/dsh_desktop";
+            if (lowerUrl.Contains("lburny")) return "第三方 LBurny/deepseek-harness-desktop";
+            if (lowerUrl.Contains("ackow")) return "第三方 Ackow/dsh-desktop";
+            if (lowerUrl.Contains("citrusli2026")) return "第三方 citrusli2026/dsh-electron-shell";
+            if (lowerUrl.Contains("flashingchen")) return "第三方 FlashingChen/dsh-desktop-hub";
+            if (lowerUrl.Contains("majiayu000")) return "第三方 majiayu000/dsh-desk";
+            if (lowerUrl.Contains("ding7015869")) return "第三方 ding7015869-alt/dsh-web-desktop";
+            if (lowerUrl.Contains("lxiayu")) return "第三方 Lxiayu/DshCockpit";
+            if (lowerUrl.Contains("zouyuxuan122")) return "第三方 zouyuxuan122/Deepseek-Harness-EAC";
+        }
+
+        // 4) Path heuristics.
+        if (!string.IsNullOrWhiteSpace(pathForHeuristic))
+        {
+            string label = ResolveLabelFromPath(pathForHeuristic);
+            if (!string.IsNullOrEmpty(label)) return label;
+        }
+
+        return string.Empty;
+    }
     static bool HasDshExecutable(string dir)
     {
         if (string.IsNullOrEmpty(dir)) return false;
@@ -561,6 +917,55 @@ class DSHDesktopUninstaller
         {
             if (File.Exists(Path.Combine(dir, name))) return true;
         }
+        return false;
+    }
+
+    // Some variants keep the app under resources\app or only ship package.json.
+    // HasDshSignature accepts those install dirs even when the main exe name is
+    // not in KnownExeNames (e.g. Electron apps named differently).
+    static bool HasDshSignature(string dir)
+    {
+        if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return false;
+
+        if (File.Exists(Path.Combine(dir, "resources", "app.asar"))) return true;
+        if (Directory.Exists(Path.Combine(dir, "resources", "app"))) return true;
+        if (Directory.Exists(Path.Combine(dir, "resources", "app.asar.unpacked"))) return true;
+
+        string packageJson = Path.Combine(dir, "package.json");
+        if (File.Exists(packageJson))
+        {
+            try
+            {
+                string text = File.ReadAllText(packageJson);
+                if (text.IndexOf("\"dsh\"", StringComparison.OrdinalIgnoreCase) >= 0
+                    || text.IndexOf("\"deepseek\"", StringComparison.OrdinalIgnoreCase) >= 0
+                    || text.IndexOf("deepseek", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return true;
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        string appPackage = Path.Combine(dir, "resources", "app", "package.json");
+        if (File.Exists(appPackage))
+        {
+            try
+            {
+                string text = File.ReadAllText(appPackage);
+                if (text.IndexOf("\"dsh\"", StringComparison.OrdinalIgnoreCase) >= 0
+                    || text.IndexOf("\"deepseek\"", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return true;
+                }
+            }
+            catch
+            {
+            }
+        }
+
         return false;
     }
 
@@ -584,13 +989,48 @@ class DSHDesktopUninstaller
         return false;
     }
 
-    static bool IsDshUninstallEntry(string displayName, string displayIcon, string uninstallString, string installLocation, string publisher)
+    // MainModule.FileName throws for elevated/other-session processes. Fall back
+    // to a WMI Win32_Process query so process detection still works for those.
+    static string GetProcessExecutablePath(Process p)
+    {
+        try
+        {
+            string path = p.MainModule.FileName;
+            if (!string.IsNullOrEmpty(path)) return path;
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("SELECT ExecutablePath FROM Win32_Process WHERE ProcessId = " + p.Id))
+            {
+                foreach (ManagementObject mo in searcher.Get())
+                {
+                    string path = mo["ExecutablePath"] as string;
+                    if (!string.IsNullOrEmpty(path)) return path;
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        return string.Empty;
+    }
+
+    static bool IsDshUninstallEntry(string displayName, string displayIcon, string uninstallString, string quietUninstallString, string installLocation, string bundleCachePath, string publisher, string urlInfoAbout)
     {
         if (IsDshRelatedName(displayName)) return true;
         if (IsDshRelatedName(publisher)) return true;
+        if (IsDshRelatedName(urlInfoAbout)) return true;
         if (IsDshRelatedPath(displayIcon)) return true;
         if (IsDshRelatedPath(uninstallString)) return true;
+        if (IsDshRelatedPath(quietUninstallString)) return true;
         if (IsDshRelatedPath(installLocation)) return true;
+        if (IsDshRelatedPath(bundleCachePath)) return true;
+        if (IsDshRelatedPath(urlInfoAbout)) return true;
         return false;
     }
 
@@ -605,10 +1045,13 @@ class DSHDesktopUninstaller
             || value.IndexOf("dshdesktop", StringComparison.OrdinalIgnoreCase) >= 0
             || value.IndexOf("dsh-edge-app", StringComparison.OrdinalIgnoreCase) >= 0
             || value.IndexOf("dsh-desk", StringComparison.OrdinalIgnoreCase) >= 0
+            || value.IndexOf("dsh desk", StringComparison.OrdinalIgnoreCase) >= 0
             || value.IndexOf("dsh-studio", StringComparison.OrdinalIgnoreCase) >= 0
             || value.IndexOf("dsh-cockpit", StringComparison.OrdinalIgnoreCase) >= 0
             || value.IndexOf("dsh-client", StringComparison.OrdinalIgnoreCase) >= 0
             || value.IndexOf("dsh-web-desktop", StringComparison.OrdinalIgnoreCase) >= 0
+            || value.IndexOf("dsh-web", StringComparison.OrdinalIgnoreCase) >= 0
+            || value.IndexOf("DSH-Web", StringComparison.OrdinalIgnoreCase) >= 0
             || value.IndexOf("dsh-electron-shell", StringComparison.OrdinalIgnoreCase) >= 0
             || value.IndexOf("DeepSeek Harness Desktop", StringComparison.OrdinalIgnoreCase) >= 0
             || value.IndexOf("DeepSeek Harness", StringComparison.OrdinalIgnoreCase) >= 0
@@ -624,10 +1067,13 @@ class DSHDesktopUninstaller
             || path.IndexOf("dshdesktop", StringComparison.OrdinalIgnoreCase) >= 0
             || path.IndexOf("dsh-edge-app", StringComparison.OrdinalIgnoreCase) >= 0
             || path.IndexOf("dsh-desk", StringComparison.OrdinalIgnoreCase) >= 0
+            || path.IndexOf("dsh desk", StringComparison.OrdinalIgnoreCase) >= 0
             || path.IndexOf("dsh-studio", StringComparison.OrdinalIgnoreCase) >= 0
             || path.IndexOf("dsh-cockpit", StringComparison.OrdinalIgnoreCase) >= 0
             || path.IndexOf("dsh-client", StringComparison.OrdinalIgnoreCase) >= 0
             || path.IndexOf("dsh-web-desktop", StringComparison.OrdinalIgnoreCase) >= 0
+            || path.IndexOf("dsh-web", StringComparison.OrdinalIgnoreCase) >= 0
+            || path.IndexOf("DSH-Web", StringComparison.OrdinalIgnoreCase) >= 0
             || path.IndexOf("dsh-electron-shell", StringComparison.OrdinalIgnoreCase) >= 0
             || path.IndexOf("DeepSeek Harness Desktop", StringComparison.OrdinalIgnoreCase) >= 0
             || path.IndexOf("DeepSeek Harness", StringComparison.OrdinalIgnoreCase) >= 0
@@ -651,18 +1097,69 @@ class DSHDesktopUninstaller
 
     static string ResolveDshHome()
     {
-        // DSH_HOME may point to a custom user-data location.
-        string env = Environment.GetEnvironmentVariable("DSH_HOME");
-        if (!string.IsNullOrWhiteSpace(env))
+        try
         {
-            return env.Trim().TrimEnd('\\');
+            // DSH_HOME may point to a custom user-data location.
+            string env = Environment.GetEnvironmentVariable("DSH_HOME");
+            if (!string.IsNullOrWhiteSpace(env))
+            {
+                string candidate = env.Trim().TrimEnd('\\');
+                string full = Path.GetFullPath(candidate);
+                string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                string windowsDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+                string root = Path.GetPathRoot(full);
+
+                bool isSafe =
+                    !string.IsNullOrEmpty(full) &&
+                    !full.Equals(root, StringComparison.OrdinalIgnoreCase) &&
+                    !full.Equals(userProfile, StringComparison.OrdinalIgnoreCase) &&
+                    !full.Equals(windowsDir, StringComparison.OrdinalIgnoreCase) &&
+                    (Path.GetFileName(full).StartsWith(".dsh", StringComparison.OrdinalIgnoreCase) ||
+                     Directory.Exists(Path.Combine(full, ".agent-presets")) ||
+                     Directory.Exists(Path.Combine(full, "sessions")) ||
+                     Directory.Exists(Path.Combine(full, "skills")));
+
+                if (isSafe)
+                {
+                    return full;
+                }
+            }
+        }
+        catch
+        {
+            // Invalid DSH_HOME values must never make uninstallation unsafe.
         }
 
         return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dsh");
-#endregion
     }
+#endregion
 
 #region Entry Point & CLI Parsing
+    static string BuildDeletionTargetsSummary()
+    {
+        List<string> targets = new List<string>();
+        if (!string.IsNullOrEmpty(DshInstallDir))
+        {
+            targets.Add("安装目录：" + DshInstallDir);
+        }
+        foreach (string dir in GetKnownExtraDirectories())
+        {
+            if (string.IsNullOrEmpty(dir)) continue;
+            if (!string.IsNullOrEmpty(DshInstallDir) && dir.Equals(DshInstallDir, StringComparison.OrdinalIgnoreCase)) continue;
+            targets.Add("已知附加目录：" + dir);
+        }
+        if (Directory.Exists(DshHome))
+        {
+            targets.Add("用户数据：" + DshHome);
+        }
+        if (!keepRuntime && Directory.Exists(DshRuntime))
+        {
+            targets.Add("运行时：" + DshRuntime);
+        }
+        targets.Add("注册表卸载项 / PATH 条目 / 快捷方式 / Run 启动项 / dsh-* 临时目录");
+        return string.Join("\r\n", targets.ToArray());
+    }
+
     static bool ConfirmAndSelectRetention()
     {
         if (silent) return true;
@@ -690,11 +1187,17 @@ class DSHDesktopUninstaller
             keepSkillNames = form.KeepSkillNames;
             useDetectedRunningDsh = form.UseDetectedRunningDsh;
 
-            // Second confirmation: show exactly what will be retained before starting.
+            // Second confirmation: show exactly what will be retained and what
+            // will be deleted before starting.
             string summary = RetentionSummary();
             string message = summary == "(none)"
                 ? "确定卸载 DSH / DeepSeek Harness 桌面端并删除所有用户数据吗？"
-                : "确定卸载 DSH / DeepSeek Harness 桌面端并保留以下内容吗？\r\n\r\n" + summary;
+                : "确定卸载 DSH / DeepSeek Harness 桌面端并保留以下内容吗？\r\n\r\n保留：\r\n" + summary;
+            message += "\r\n\r\n将删除：\r\n" + BuildDeletionTargetsSummary();
+            if (string.IsNullOrEmpty(DshInstallDir))
+            {
+                message += "\r\n\r\n⚠️ 未检测到 DSH 安装目录，将仅清理用户数据与已知额外目录。";
+            }
             if (MessageBox.Show(message, "确认卸载", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK)
             {
                 return false;
@@ -703,11 +1206,49 @@ class DSHDesktopUninstaller
             return true;
         }
     }
+
+    // When the uninstaller relaunches itself from a temp copy, the temp copy
+    // cannot delete its own running exe. Schedule a delayed cmd to remove the
+    // whole temp folder after the process has exited.
+    static void ScheduleSelfTempDeletion()
+    {
+        if (string.IsNullOrEmpty(selfTempDir)) return;
+        try
+        {
+            string cmd = "/C ping 127.0.0.1 -n 2 >nul & rmdir /s /q \"" + selfTempDir + "\"";
+            ProcessStartInfo psi = new ProcessStartInfo("cmd.exe", cmd);
+            psi.UseShellExecute = false;
+            psi.CreateNoWindow = true;
+            Process.Start(psi);
+        }
+        catch
+        {
+        }
+    }
+
     [STAThread]
     static int Main(string[] args)
     {
         ParseArgs(args);
         InitializeLog();
+        Log("Detected DSH: " + DetectedVariantLabel);
+        if (VariantProfileApplied)
+        {
+            string repo = ExtractRepoFromLabel(DetectedVariantLabel);
+            if (!string.IsNullOrEmpty(repo)) Log("Variant profile applied for: " + repo);
+        }
+
+        if (helpRequested)
+        {
+            PrintUsage();
+            return 0;
+        }
+
+        if (dryRun)
+        {
+            RunDryRun();
+            return 0;
+        }
 
         if (!IsAdministrator())
         {
@@ -717,9 +1258,12 @@ class DSHDesktopUninstaller
                 psi.FileName = Assembly.GetEntryAssembly().Location;
                 psi.Verb = "runas";
                 psi.UseShellExecute = true;
-                psi.Arguments = string.Join(" ", args);
-                Process.Start(psi);
-                return 0;
+                psi.Arguments = BuildQuotedArguments(args);
+                using (Process p = Process.Start(psi))
+                {
+                    p.WaitForExit();
+                    return p.ExitCode;
+                }
             }
             catch (Exception ex)
             {
@@ -730,28 +1274,88 @@ class DSHDesktopUninstaller
             }
         }
 
+        // If this uninstaller itself is running from the DSH install directory,
+        // it cannot be deleted while running. Relaunch a temporary copy so the
+        // original process exits and releases the lock before cleanup.
+        if (IsRunningFromDshInstallDir())
+        {
+            try
+            {
+                string srcExe = Assembly.GetEntryAssembly().Location;
+                string tempDir = Path.Combine(Path.GetTempPath(), "dsh-uninstaller-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+                Directory.CreateDirectory(tempDir);
+                selfTempDir = tempDir;
+                string tempExe = Path.Combine(tempDir, Path.GetFileName(srcExe));
+                File.Copy(srcExe, tempExe, true);
+                Log("Uninstaller runs from install dir; relaunching from temp: " + tempExe);
+                ProcessStartInfo psi = new ProcessStartInfo();
+                psi.FileName = tempExe;
+                psi.UseShellExecute = false;
+                psi.Arguments = BuildQuotedArguments(args);
+                using (Process p = Process.Start(psi))
+                {
+                    p.WaitForExit();
+                    ScheduleSelfTempDeletion();
+                    return p.ExitCode;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log("Failed to relocate uninstaller for self-deletion: " + ex.Message);
+            }
+        }
+
         try
         {
             if (!ConfirmAndSelectRetention())
             {
                 Log("Uninstall cancelled by user.");
+                ScheduleSelfTempDeletion();
                 Pause();
                 return 0;
             }
 
-            Run();
+            if (!silent)
+            {
+                progressForm = new ProgressForm();
+                progressForm.Show();
+            }
+            try
+            {
+                Run();
+            }
+            finally
+            {
+                try
+                {
+                    if (progressForm != null)
+                    {
+                        progressForm.Close();
+                        progressForm.Dispose();
+                    }
+                }
+                catch
+                {
+                }
+                progressForm = null;
+            }
             Log("===== Uninstaller exit =====");
+            ScheduleSelfTempDeletion();
         }
         catch (Exception ex)
         {
             Log("ERROR: " + ex);
             Console.WriteLine("Error: " + ex.Message);
+            ScheduleSelfTempDeletion();
             Pause();
             return 1;
         }
 
+        ScheduleSelfTempDeletion();
         Pause();
-        return 0;
+        // In silent mode report cleanup failures via a non-zero exit code so
+        // scripts can detect a partial uninstall; interactive mode returns 0.
+        return (silent && failureCount > 0) ? 1 : 0;
     }
 
     static void ParseArgs(string[] args)
@@ -865,8 +1469,104 @@ class DSHDesktopUninstaller
             {
                 useDetectedRunningDsh = false;
             }
+            else if (arg.Equals("/InstallDir", StringComparison.OrdinalIgnoreCase) ||
+                     arg.Equals("-InstallDir", StringComparison.OrdinalIgnoreCase) ||
+                     arg.Equals("/Dir", StringComparison.OrdinalIgnoreCase) ||
+                     arg.Equals("-Dir", StringComparison.OrdinalIgnoreCase))
+            {
+                manualInstallDir = (value ?? string.Empty).Trim().Trim('"').TrimEnd('\\');
+            }
+            else if (arg.Equals("/DryRun", StringComparison.OrdinalIgnoreCase) ||
+                     arg.Equals("-DryRun", StringComparison.OrdinalIgnoreCase) ||
+                     arg.Equals("/Preview", StringComparison.OrdinalIgnoreCase) ||
+                     arg.Equals("-Preview", StringComparison.OrdinalIgnoreCase))
+            {
+                dryRun = true;
+            }
+            else if (arg.Equals("/help", StringComparison.OrdinalIgnoreCase) ||
+                     arg.Equals("-help", StringComparison.OrdinalIgnoreCase) ||
+                     arg.Equals("/?", StringComparison.OrdinalIgnoreCase) ||
+                     arg.Equals("-?", StringComparison.OrdinalIgnoreCase) ||
+                     arg.Equals("-h", StringComparison.OrdinalIgnoreCase))
+            {
+                helpRequested = true;
+            }
         }
     }
+
+    // Rebuild a command line that preserves each argument as a single token,
+    // quoting arguments that contain spaces or quotes. Without this, a value
+    // like "/KeepPresets=我的预设,预设2" would be split across the UAC re-launch.
+    static string BuildQuotedArguments(string[] args)
+    {
+        if (args == null || args.Length == 0) return string.Empty;
+        List<string> quoted = new List<string>();
+        foreach (string a in args)
+        {
+            if (string.IsNullOrEmpty(a))
+            {
+                quoted.Add("\"\"");
+                continue;
+            }
+            bool needsQuote = a.IndexOf(' ') >= 0 || a.IndexOf('"') >= 0 || a.IndexOf('\t') >= 0;
+            if (!needsQuote)
+            {
+                quoted.Add(a);
+                continue;
+            }
+            quoted.Add("\"" + a.Replace("\"", "\\\"") + "\"");
+        }
+        return string.Join(" ", quoted.ToArray());
+    }
+
+    static void PrintUsage()
+    {
+        Console.WriteLine("DSH / DeepSeek Harness 桌面端卸载器");
+        Console.WriteLine();
+        Console.WriteLine("用法: Uninstall_DSH_Desktop.exe [选项]");
+        Console.WriteLine();
+        Console.WriteLine("  卸载模式:");
+        Console.WriteLine("    /S 或 /silent          静默卸载（不显示界面）");
+        Console.WriteLine("    /DetectRunning         优先检测正在运行的 DSH 安装目录");
+        Console.WriteLine("    /Default               使用默认检测（注册表/常见路径）");
+        Console.WriteLine("    /InstallDir=<路径>     手动指定安装目录");
+        Console.WriteLine("    /DryRun                只检测并列出将删除/保留的内容，不实际删除");
+        Console.WriteLine("    /help 或 /?            显示本帮助");
+        Console.WriteLine();
+        Console.WriteLine("  保留选项:");
+        Console.WriteLine("    /KeepPresets[=名称]    保留预设（不填=全部；多个用逗号分隔）");
+        Console.WriteLine("    /KeepSkills[=名称]     保留 skills（不填=全部；多个用逗号分隔）");
+        Console.WriteLine("    /KeepChatData          保留聊天数据 (sessions)");
+        Console.WriteLine("    /KeepAppSettings       保留应用设置 (settings.yaml)");
+        Console.WriteLine("    /KeepModelConfig       保留模型配置与凭据");
+        Console.WriteLine("    /KeepOtherUserData     保留其他 .dsh 数据");
+        Console.WriteLine("    /KeepPlugins[=名称]    保留插件（不填=全部）");
+        Console.WriteLine("    /KeepRuntime           保留 .dsh-runtime");
+        Console.WriteLine("    /KeepAll               保留以上全部");
+    }
+
+    static void RunDryRun()
+    {
+        Console.WriteLine("===== DSH Desktop Uninstaller Dry-Run =====");
+        Console.WriteLine("安装目录:   " + (string.IsNullOrEmpty(DshInstallDir) ? "(未检测到)" : DshInstallDir));
+        Console.WriteLine("当前DSH:    " + DetectedVariantLabel);
+        Console.WriteLine("用户数据:   " + DshHome);
+        Console.WriteLine("运行时:     " + DshRuntime);
+        Console.WriteLine("保留:       " + RetentionSummary());
+        Console.WriteLine();
+        Console.WriteLine("将删除的主要内容:");
+        Console.WriteLine("  - 安装目录: " + (string.IsNullOrEmpty(DshInstallDir) ? "(未检测到，跳过)" : DshInstallDir));
+        foreach (string dir in GetKnownExtraDirectories())
+        {
+            if (!string.IsNullOrEmpty(dir)) Console.WriteLine("  - 额外目录: " + dir);
+        }
+        Console.WriteLine("  - 快捷方式: 桌面/开始菜单中的 DSH 相关 .lnk");
+        Console.WriteLine("  - 注册表:   卸载键 + 通知设置 + PATH 条目 + Run 启动项");
+        Console.WriteLine("  - 用户数据: " + DshHome + (keepAgentPresets || keepChatData || keepSkills || keepAppSettings || keepModelConfig || keepOtherUserData ? "（按选项保留）" : "（全部删除）"));
+        Console.WriteLine("  - 运行时:   " + (keepRuntime ? "保留" : DshRuntime));
+        Console.WriteLine("===== Dry-run end =====");
+    }
+
 
     static List<string> ParsePresetNames(string value)
     {
@@ -889,17 +1589,24 @@ class DSHDesktopUninstaller
     static List<PresetInfo> DetectAgentPresets()
     {
         List<PresetInfo> result = new List<PresetInfo>();
-        string presetRoot = Path.Combine(DshHome, ".agent-presets");
-        if (!Directory.Exists(presetRoot))
+        try
         {
-            return result;
-        }
+            string presetRoot = Path.Combine(DshHome, ".agent-presets");
+            if (!Directory.Exists(presetRoot))
+            {
+                return result;
+            }
 
-        foreach (string dir in Directory.GetDirectories(presetRoot))
+            foreach (string dir in Directory.GetDirectories(presetRoot))
+            {
+                string folderName = Path.GetFileName(dir);
+                string displayName = GetPresetDisplayName(dir);
+                result.Add(new PresetInfo(folderName, displayName));
+            }
+        }
+        catch (Exception ex)
         {
-            string folderName = Path.GetFileName(dir);
-            string displayName = GetPresetDisplayName(dir);
-            result.Add(new PresetInfo(folderName, displayName));
+            Log("  DetectAgentPresets failed: " + ex.Message);
         }
         return result;
     }
@@ -943,30 +1650,37 @@ class DSHDesktopUninstaller
     static List<PluginInfo> DetectPlugins()
     {
         List<PluginInfo> result = new List<PluginInfo>();
-        string webModules = Path.Combine(DshHome, @"profiles\web\node_modules");
-        if (!Directory.Exists(webModules))
+        try
         {
-            return result;
-        }
-
-        foreach (string dir in Directory.GetDirectories(webModules))
-        {
-            string name = Path.GetFileName(dir);
-            if (name.StartsWith("@")) continue;
-            AddPluginIfDsh(dir, result);
-        }
-
-        foreach (string scopeDir in Directory.GetDirectories(webModules))
-        {
-            string scope = Path.GetFileName(scopeDir);
-            if (!scope.StartsWith("@")) continue;
-            foreach (string pkgDir in Directory.GetDirectories(scopeDir))
+            string webModules = Path.Combine(DshHome, @"profiles\web\node_modules");
+            if (!Directory.Exists(webModules))
             {
-                AddPluginIfDsh(pkgDir, result);
+                return result;
             }
-        }
 
-        result.Sort((a, b) => string.Compare(a.PackageName, b.PackageName, StringComparison.OrdinalIgnoreCase));
+            foreach (string dir in Directory.GetDirectories(webModules))
+            {
+                string name = Path.GetFileName(dir);
+                if (name.StartsWith("@")) continue;
+                AddPluginIfDsh(dir, result);
+            }
+
+            foreach (string scopeDir in Directory.GetDirectories(webModules))
+            {
+                string scope = Path.GetFileName(scopeDir);
+                if (!scope.StartsWith("@")) continue;
+                foreach (string pkgDir in Directory.GetDirectories(scopeDir))
+                {
+                    AddPluginIfDsh(pkgDir, result);
+                }
+            }
+
+            result.Sort((a, b) => string.Compare(a.PackageName, b.PackageName, StringComparison.OrdinalIgnoreCase));
+        }
+        catch (Exception ex)
+        {
+            Log("  DetectPlugins failed: " + ex.Message);
+        }
         return result;
     }
 
@@ -1029,29 +1743,36 @@ class DSHDesktopUninstaller
     static List<SkillInfo> DetectSkills()
     {
         List<SkillInfo> result = new List<SkillInfo>();
-        string skillsRoot = Path.Combine(DshHome, "skills");
-        if (!Directory.Exists(skillsRoot))
+        try
         {
-            return result;
-        }
+            string skillsRoot = Path.Combine(DshHome, "skills");
+            if (!Directory.Exists(skillsRoot))
+            {
+                return result;
+            }
 
-        // Skills are stored under .dsh\skills as either a subfolder (containing
-        // SKILL.md etc.) or a plain .md file directly under the skills root.
-        foreach (string dir in Directory.GetDirectories(skillsRoot))
+            // Skills are stored under .dsh\skills as either a subfolder (containing
+            // SKILL.md etc.) or a plain .md file directly under the skills root.
+            foreach (string dir in Directory.GetDirectories(skillsRoot))
+            {
+                string name = Path.GetFileName(dir);
+                result.Add(new SkillInfo(name, name));
+            }
+
+            foreach (string file in Directory.GetFiles(skillsRoot))
+            {
+                string ext = Path.GetExtension(file);
+                if (!string.Equals(ext, ".md", StringComparison.OrdinalIgnoreCase)) continue;
+                string name = Path.GetFileNameWithoutExtension(file);
+                result.Add(new SkillInfo(name, name));
+            }
+
+            result.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+        }
+        catch (Exception ex)
         {
-            string name = Path.GetFileName(dir);
-            result.Add(new SkillInfo(name, name));
+            Log("  DetectSkills failed: " + ex.Message);
         }
-
-        foreach (string file in Directory.GetFiles(skillsRoot))
-        {
-            string ext = Path.GetExtension(file);
-            if (!string.Equals(ext, ".md", StringComparison.OrdinalIgnoreCase)) continue;
-            string name = Path.GetFileNameWithoutExtension(file);
-            result.Add(new SkillInfo(name, name));
-        }
-
-        result.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
         return result;
     }
 
@@ -1072,8 +1793,61 @@ class DSHDesktopUninstaller
         return principal.IsInRole(WindowsBuiltInRole.Administrator);
     }
 
+    static bool IsRunningFromDshInstallDir()
+    {
+        try
+        {
+            string exeDir = Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
+            return !string.IsNullOrEmpty(exeDir) &&
+                   !string.IsNullOrEmpty(DshInstallDir) &&
+                   exeDir.Equals(DshInstallDir, StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    static bool IsSafeInstallDir(string dir)
+    {
+        try
+        {
+            string full = Path.GetFullPath(dir);
+            string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            string windowsDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+            string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+            string programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+            string root = Path.GetPathRoot(full);
+
+            return !string.IsNullOrEmpty(full) &&
+                   !full.Equals(root, StringComparison.OrdinalIgnoreCase) &&
+                   !full.Equals(userProfile, StringComparison.OrdinalIgnoreCase) &&
+                   !full.Equals(windowsDir, StringComparison.OrdinalIgnoreCase) &&
+                   !full.Equals(programFiles, StringComparison.OrdinalIgnoreCase) &&
+                   !full.Equals(programFilesX86, StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     static void Run()
     {
+        if (!string.IsNullOrEmpty(manualInstallDir))
+        {
+            if (Directory.Exists(manualInstallDir) && IsSafeInstallDir(manualInstallDir) &&
+                (HasDshExecutable(manualInstallDir) || HasDshSignature(manualInstallDir)))
+            {
+                DshInstallDir = manualInstallDir;
+                Log("Uninstall mode: manual install dir -> " + manualInstallDir);
+            }
+            else
+            {
+                Log("WARNING: manual install dir does not look like a DSH desktop, ignored: " + manualInstallDir);
+            }
+        }
+
         if (useDetectedRunningDsh)
         {
             string runningDir = FindRunningDshInstallDir();
@@ -1095,6 +1869,10 @@ class DSHDesktopUninstaller
         Log("===== DSH Desktop / DeepSeek Harness Complete Uninstaller =====");
         Log("Retention: " + RetentionSummary());
         Log("Install dir: " + (string.IsNullOrEmpty(DshInstallDir) ? "(not detected)" : DshInstallDir));
+        if (string.IsNullOrEmpty(DshInstallDir))
+        {
+            Log("  WARNING: no DSH install directory detected; only user data and known extra directories will be cleaned.");
+        }
         Log("");
 
         KillDSHProcesses();
@@ -1111,6 +1889,9 @@ class DSHDesktopUninstaller
         DeleteKnownDshShortcuts();
         DeleteRegistryKeys();
         CleanupMachinePath();
+        CleanupUserPath();
+        CleanupRunKeys();
+        BroadcastEnvironmentChange();
         PreserveSelectedPlugins();
         CleanDshHome();
         if (!keepRuntime)
@@ -1133,23 +1914,74 @@ class DSHDesktopUninstaller
         string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
         string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
+        // Updater directories are DSH-specific names; no generic-name collision
+        // risk, so add them without extra verification.
         foreach (string name in KnownUpdaterDirNames)
         {
             dirs.Add(Path.Combine(localAppData, name));
         }
+        // Generic per-user/per-machine folders must be verified to actually be
+        // DSH installs before they are added, so a user's own same-named folder
+        // (e.g. "%USERPROFILE%\DSH Desktop") is never deleted by mistake.
         foreach (string name in KnownLocalAppDataDirNames)
         {
-            dirs.Add(Path.Combine(localAppData, name));
-            dirs.Add(Path.Combine(localAppData, "Programs", name));
-            dirs.Add(Path.Combine(userProfile, name));
+            AddVerifiedDshDir(dirs, Path.Combine(localAppData, name));
+            AddVerifiedDshDir(dirs, Path.Combine(localAppData, "Programs", name));
+            AddVerifiedDshDir(dirs, Path.Combine(userProfile, name));
         }
         foreach (string name in KnownRoamingDirNames)
         {
-            dirs.Add(Path.Combine(appData, name));
+            AddVerifiedDshDir(dirs, Path.Combine(appData, name));
         }
         // Lite/edge variants may install the CLI globally via npm (@deepseek-ai/dsh).
         dirs.Add(Path.Combine(appData, "npm", "node_modules", "@deepseek-ai", "dsh"));
         return dirs;
+    }
+
+    // Add a candidate directory only if it does not exist or is verified as a
+    // DSH/Electron install; skip existing non-DSH directories to avoid deleting
+    // a user's unrelated folder that happens to share the same name.
+    static void AddVerifiedDshDir(List<string> dirs, string dir)
+    {
+        if (string.IsNullOrEmpty(dir)) return;
+        if (!Directory.Exists(dir))
+        {
+            dirs.Add(dir);
+            return;
+        }
+        if (IsLikelyDshDirectory(dir))
+        {
+            dirs.Add(dir);
+        }
+        else
+        {
+            Log("  Skipping non-DSH directory: " + dir);
+        }
+    }
+
+    static bool IsLikelyDshDirectory(string dir)
+    {
+        try
+        {
+            if (HasDshExecutable(dir)) return true;
+            if (File.Exists(Path.Combine(dir, "app.asar"))) return true;
+            if (Directory.Exists(Path.Combine(dir, "resources", "app"))) return true;
+            string pkgFile = Path.Combine(dir, "package.json");
+            if (File.Exists(pkgFile))
+            {
+                string json = File.ReadAllText(pkgFile);
+                if (json.IndexOf("dsh", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    json.IndexOf("deepseek", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    json.IndexOf("electron", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return true;
+                }
+            }
+        }
+        catch
+        {
+        }
+        return false;
     }
 
     static void DeleteKnownDshShortcuts()
@@ -1164,9 +1996,31 @@ class DSHDesktopUninstaller
         foreach (string root in roots)
         {
             if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) continue;
-            foreach (string name in KnownShortcutNames)
+            try
             {
-                DeleteFileIfExists(Path.Combine(root, name));
+                // Some installers place shortcuts in sub-folders (for example
+                // "...\Start Menu\Programs\DSH Desktop\DSH Desktop.lnk"), so
+                // scan recursively instead of only checking the root.
+                foreach (string file in Directory.GetFiles(root, "*.lnk", SearchOption.AllDirectories))
+                {
+                    string fileName = Path.GetFileName(file);
+                    bool isKnown = false;
+                    foreach (string known in KnownShortcutNames)
+                    {
+                        if (known.Equals(fileName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            isKnown = true;
+                            break;
+                        }
+                    }
+                    if (isKnown)
+                    {
+                        DeleteFileIfExists(file);
+                    }
+                }
+            }
+            catch
+            {
             }
         }
     }
@@ -1299,14 +2153,53 @@ class DSHDesktopUninstaller
             }
         }
 
+        // Final pass: use taskkill /F /T so Electron child-process trees are
+        // removed as a whole (main process alone may leave renderer/gpu children).
+        // Try both image-name spellings; some processes report no .exe suffix.
+        foreach (string name in KnownProcessNames)
+        {
+            RunTaskKill("/F /IM \"" + name + ".exe\" /T");
+            RunTaskKill("/F /IM \"" + name + "\" /T");
+        }
+        foreach (Process p in Process.GetProcesses())
+        {
+            try
+            {
+                if (IsDshProcess(p))
+                {
+                    RunTaskKill("/F /T /PID " + p.Id);
+                }
+            }
+            catch
+            {
+            }
+        }
+
         Thread.Sleep(500);
+    }
+
+    static void RunTaskKill(string arguments)
+    {
+        try
+        {
+            ProcessStartInfo psi = new ProcessStartInfo("taskkill.exe", arguments);
+            psi.UseShellExecute = false;
+            psi.CreateNoWindow = true;
+            using (Process p = Process.Start(psi))
+            {
+                p.WaitForExit(10000);
+            }
+        }
+        catch
+        {
+        }
     }
 
     static bool IsDshProcess(Process p)
     {
         try
         {
-            string path = p.MainModule.FileName;
+            string path = GetProcessExecutablePath(p);
             if (!string.IsNullOrEmpty(path))
             {
                 try
@@ -1362,6 +2255,7 @@ class DSHDesktopUninstaller
                 if (i == 7)
                 {
                     Log("  Failed to delete (may be in use): " + dir + " -> " + ex.Message);
+                    failureCount++;
                 }
                 else
                 {
@@ -1383,34 +2277,23 @@ class DSHDesktopUninstaller
             return;
         }
 
-        // Clear read-only attributes and delete all files first.
+        // Clear read-only attributes and delete all files first. Do not swallow
+        // exceptions: a locked file must make DeleteDirectoryWithRetry retry the
+        // whole directory and eventually count the failure in silent mode.
         foreach (string file in Directory.GetFiles(path))
         {
-            try
-            {
-                File.SetAttributes(file, FileAttributes.Normal);
-                File.Delete(file);
-            }
-            catch
-            {
-                // A single locked file is retried by the outer DeleteDirectoryWithRetry.
-            }
+            File.SetAttributes(file, FileAttributes.Normal);
+            File.Delete(file);
         }
 
         // Recurse into subdirectories, then remove the now-empty directory.
+        // Exceptions propagate so the outer retry loop sees the failure.
         foreach (string sub in Directory.GetDirectories(path))
         {
             DeleteDirectorySafe(sub);
         }
 
-        try
-        {
-            Directory.Delete(path, false);
-        }
-        catch
-        {
-            // May be temporarily locked; outer DeleteDirectoryWithRetry will retry.
-        }
+        Directory.Delete(path, false);
     }
 
     static void DeleteFileIfExists(string file)
@@ -1426,6 +2309,7 @@ class DSHDesktopUninstaller
         catch (Exception ex)
         {
             Log("  Failed to delete file: " + file + " -> " + ex.Message);
+            failureCount++;
         }
     }
 #endregion
@@ -1482,6 +2366,32 @@ class DSHDesktopUninstaller
         }
     }
 
+    static bool IsKnownAppId(string id)
+    {
+        if (string.IsNullOrEmpty(id)) return false;
+        foreach (string known in KnownAppIds)
+        {
+            if (known.Equals(id, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
+    }
+
+    // Some uninstall registry keys are named "<AppId>_is1" or "<AppId>-extra".
+    static bool MatchesKnownAppId(string id)
+    {
+        if (string.IsNullOrEmpty(id)) return false;
+        if (IsKnownAppId(id)) return true;
+        foreach (string known in KnownAppIds)
+        {
+            if (id.StartsWith(known + "_", StringComparison.OrdinalIgnoreCase) ||
+                id.StartsWith(known + "-", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     static void DeleteMatchingUninstallKeys(RegistryHive hive, RegistryView view, string label)
     {
         try
@@ -1494,15 +2404,29 @@ class DSHDesktopUninstaller
                 foreach (string name in names)
                 {
                     bool matched = false;
-                    using (RegistryKey sub = uninstallRoot.OpenSubKey(name))
+                    // Each subkey is handled independently so a single
+                    // permission/read failure does not abort the whole scan.
+                    try
                     {
-                        if (sub == null) continue;
-                        string displayName = sub.GetValue("DisplayName") as string;
-                        string displayIcon = sub.GetValue("DisplayIcon") as string;
-                        string uninstallString = sub.GetValue("UninstallString") as string;
-                        string installLocation = sub.GetValue("InstallLocation") as string;
-                        string publisher = sub.GetValue("Publisher") as string;
-                        matched = IsDshUninstallEntry(displayName, displayIcon, uninstallString, installLocation, publisher);
+                        using (RegistryKey sub = uninstallRoot.OpenSubKey(name))
+                        {
+                            if (sub == null) continue;
+                            string displayName = sub.GetValue("DisplayName") as string;
+                            string displayIcon = sub.GetValue("DisplayIcon") as string;
+                            string uninstallString = sub.GetValue("UninstallString") as string;
+                            string quietUninstallString = sub.GetValue("QuietUninstallString") as string;
+                            string installLocation = sub.GetValue("InstallLocation") as string;
+                            string bundleCachePath = sub.GetValue("BundleCachePath") as string;
+                            string publisher = sub.GetValue("Publisher") as string;
+                            string urlInfoAbout = sub.GetValue("URLInfoAbout") as string;
+                            matched = IsDshUninstallEntry(displayName, displayIcon, uninstallString, quietUninstallString, installLocation, bundleCachePath, publisher, urlInfoAbout) ||
+                                      MatchesKnownAppId(name);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Log("  Failed to read " + label + " uninstall key " + name + ": " + ex.Message);
+                        continue;
                     }
 
                     if (matched)
@@ -1515,6 +2439,7 @@ class DSHDesktopUninstaller
                         catch (Exception ex)
                         {
                             Log("  Failed to delete " + label + " uninstall key " + name + ": " + ex.Message);
+                            failureCount++;
                         }
                     }
                 }
@@ -1532,17 +2457,15 @@ class DSHDesktopUninstaller
         {
             using (RegistryKey key = root.OpenSubKey(subKey))
             {
-                if (key != null)
-                {
-                    key.Close();
-                    root.DeleteSubKeyTree(subKey, false);
-                    Log("  Deleted " + label + ": " + subKey);
-                }
+                if (key == null) return;
             }
+            root.DeleteSubKeyTree(subKey, false);
+            Log("  Deleted " + label + ": " + subKey);
         }
         catch (Exception ex)
         {
             Log("  Failed to delete " + label + ": " + ex.Message);
+            failureCount++;
         }
     }
 
@@ -1553,34 +2476,150 @@ class DSHDesktopUninstaller
         {
             using (RegistryKey key = Registry.LocalMachine.OpenSubKey(MachineEnvKey, true))
             {
-                if (key == null) return;
-                string path = key.GetValue("Path", "").ToString();
-                string[] parts = path.Split(new char[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
-                List<string> kept = new List<string>();
-                bool changed = false;
-                foreach (string part in parts)
-                {
-                    string trimmed = part.Trim().TrimEnd('\\');
-                    if (trimmed.Equals(Path.Combine(DshRuntime, "node"), StringComparison.OrdinalIgnoreCase))
-                    {
-                        changed = true;
-                        Log("  Removed from PATH: " + part);
-                    }
-                    else
-                    {
-                        kept.Add(part);
-                    }
-                }
-                if (changed)
-                {
-                    key.SetValue("Path", string.Join(";", kept.ToArray()), RegistryValueKind.ExpandString);
-                }
+                CleanPathRegistryKey(key, "machine");
             }
         }
         catch (Exception ex)
         {
-            Log("  Failed to clean PATH: " + ex.Message);
+            Log("  Failed to clean machine PATH: " + ex.Message);
         }
+    }
+
+    // Also clean the user-level PATH (HKCU\Environment) which DSH installers
+    // may append to; this was previously not handled.
+    static void CleanupUserPath()
+    {
+        Log("[3b/9] Cleaning user PATH...");
+        try
+        {
+            using (RegistryKey key = Registry.CurrentUser.OpenSubKey("Environment", true))
+            {
+                CleanPathRegistryKey(key, "user");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log("  Failed to clean user PATH: " + ex.Message);
+        }
+    }
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);
+
+    static void BroadcastEnvironmentChange()
+    {
+        try
+        {
+            UIntPtr result;
+            SendMessageTimeout((IntPtr)0xffff, 0x001A, UIntPtr.Zero, "Environment", 0x0002, 5000, out result);
+            Log("  Broadcast WM_SETTINGCHANGE for environment variables.");
+        }
+        catch (Exception ex)
+        {
+            Log("  Failed to broadcast environment change: " + ex.Message);
+        }
+    }
+
+    static void CleanupRunKeys()
+    {
+        Log("[3c/9] Cleaning Run/RunOnce startup entries...");
+        RegistryHive[] hives = new RegistryHive[] { RegistryHive.LocalMachine, RegistryHive.CurrentUser };
+        RegistryView[] views = new RegistryView[] { RegistryView.Registry64, RegistryView.Registry32 };
+        string[] subKeys = new string[]
+        {
+            @"Software\Microsoft\Windows\CurrentVersion\Run",
+            @"Software\Microsoft\Windows\CurrentVersion\RunOnce"
+        };
+        foreach (RegistryHive hive in hives)
+        {
+            foreach (RegistryView view in views)
+            {
+                foreach (string subKey in subKeys)
+                {
+                    try
+                    {
+                        using (RegistryKey baseKey = RegistryKey.OpenBaseKey(hive, view))
+                        using (RegistryKey run = baseKey.OpenSubKey(subKey, true))
+                        {
+                            if (run == null) continue;
+                            foreach (string valueName in run.GetValueNames())
+                            {
+                                try
+                                {
+                                    string value = run.GetValue(valueName, "").ToString();
+                                    if (IsDshRelatedName(valueName) || IsDshRelatedName(value) || IsDshRelatedPath(value))
+                                    {
+                                        run.DeleteValue(valueName, false);
+                                        Log("  Deleted startup entry (" + subKey + "): " + valueName + " = " + value);
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    Log("  Failed to delete startup entry " + valueName + " (" + subKey + "): " + ex.Message);
+                                    failureCount++;
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Log("  Failed to scan startup key (" + subKey + ", " + hive + ", " + view + "): " + ex.Message);
+                    }
+                }
+            }
+        }
+    }
+
+    static void CleanPathRegistryKey(RegistryKey key, string scope)
+    {
+        if (key == null) return;
+        string path = key.GetValue("Path", "").ToString();
+        string[] parts = path.Split(new char[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
+        List<string> kept = new List<string>();
+        bool changed = false;
+        foreach (string part in parts)
+        {
+            string trimmed = part.Trim().TrimEnd('\\');
+            if (IsDshPathEntry(trimmed))
+            {
+                changed = true;
+                Log("  Removed from " + scope + " PATH: " + part);
+            }
+            else
+            {
+                kept.Add(part);
+            }
+        }
+        if (changed)
+        {
+            // Preserve the original value kind. Some systems only accept
+            // REG_SZ for PATH and reject changing it to REG_EXPAND_SZ.
+            RegistryValueKind kind = RegistryValueKind.String;
+            try
+            {
+                kind = key.GetValueKind("Path");
+                if (kind == RegistryValueKind.None || kind == RegistryValueKind.Unknown)
+                {
+                    kind = RegistryValueKind.String;
+                }
+            }
+            catch
+            {
+                kind = RegistryValueKind.String;
+            }
+            key.SetValue("Path", string.Join(";", kept.ToArray()), kind);
+        }
+    }
+
+    static bool IsDshPathEntry(string trimmed)
+    {
+        if (string.IsNullOrEmpty(trimmed)) return false;
+        if (trimmed.Equals(Path.Combine(DshRuntime, "node"), StringComparison.OrdinalIgnoreCase)) return true;
+        if (trimmed.Equals(Path.Combine(DshHome, "bin"), StringComparison.OrdinalIgnoreCase)) return true;
+        if (!string.IsNullOrEmpty(DshInstallDir) &&
+            trimmed.StartsWith(DshInstallDir.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase)) return true;
+        // Broader heuristic for variants not installed in the detected dir.
+        return IsDshRelatedPath(trimmed);
     }
 #endregion
 
@@ -1592,9 +2631,25 @@ class DSHDesktopUninstaller
 
         string webModules = Path.Combine(DshHome, @"profiles\web\node_modules");
         string destRoot = Path.Combine(DshRuntime, @"dsh\node_modules");
-        if (!Directory.Exists(webModules) || !Directory.Exists(destRoot))
+        if (!Directory.Exists(webModules))
         {
+            Log("  WARNING: plugin source not found (" + webModules + "); selected plugins were not preserved.");
             return;
+        }
+        if (!Directory.Exists(destRoot))
+        {
+            // The runtime may have been removed already; try to recreate the
+            // destination so plugins can still be preserved.
+            Log("  Runtime node_modules missing (" + destRoot + "); attempting to recreate.");
+            try
+            {
+                Directory.CreateDirectory(destRoot);
+            }
+            catch (Exception ex)
+            {
+                Log("  WARNING: could not create plugin destination (" + destRoot + "): " + ex.Message);
+                return;
+            }
         }
 
         List<PluginInfo> plugins = DetectPlugins();
@@ -1619,7 +2674,9 @@ class DSHDesktopUninstaller
 
             try
             {
-                Directory.CreateDirectory(Path.GetDirectoryName(dest));
+                string destDir = Path.GetDirectoryName(dest);
+                if (string.IsNullOrEmpty(destDir)) destDir = destRoot;
+                Directory.CreateDirectory(destDir);
                 CopyDirectory(src, dest);
                 Log("  Preserved plugin: " + plugin.PackageName);
                 preserved++;
@@ -1709,22 +2766,22 @@ class DSHDesktopUninstaller
         string[] dirs = Directory.GetDirectories(DshHome);
         foreach (string dir in dirs)
         {
-            if (keepPresets && dir.Equals(presetRoot, StringComparison.OrdinalIgnoreCase))
+            bool isPreset = dir.Equals(presetRoot, StringComparison.OrdinalIgnoreCase);
+            bool isSessions = dir.Equals(sessionsDir, StringComparison.OrdinalIgnoreCase);
+            bool isSkills = dir.Equals(skillsDir, StringComparison.OrdinalIgnoreCase);
+
+            if ((keepPresets && isPreset) ||
+                (keepChat && isSessions) ||
+                (keepSkillsData && isSkills))
             {
                 continue;
             }
-            if (keepChat && dir.Equals(sessionsDir, StringComparison.OrdinalIgnoreCase))
+
+            if (keepOther && !isPreset && !isSessions && !isSkills)
             {
                 continue;
             }
-            if (keepSkillsData && dir.Equals(skillsDir, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-            if (keepOther)
-            {
-                continue;
-            }
+
             DeleteDirectoryWithRetry(dir);
         }
 
@@ -1827,12 +2884,12 @@ class DSHDesktopUninstaller
             foreach (string d in Directory.GetDirectories(temp, "dsh*"))
             {
                 string name = Path.GetFileName(d);
-                bool nameMatch = name.StartsWith("dsh-", StringComparison.OrdinalIgnoreCase)
-                                 || name.StartsWith("dsh_", StringComparison.OrdinalIgnoreCase)
-                                 || System.Text.RegularExpressions.Regex.IsMatch(name, @"^dsh\d+$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                // Narrow match: only "dsh-" prefixed directories that clearly
+                // contain a DSH log file. This avoids deleting a third-party
+                // tool's "dsh-backup" or "dsh_xyz" temp folder.
+                bool nameMatch = name.StartsWith("dsh-", StringComparison.OrdinalIgnoreCase);
 
-                bool contentMatch = Directory.Exists(Path.Combine(d, "node_modules"))
-                                    || File.Exists(Path.Combine(d, "dsh.log"))
+                bool contentMatch = File.Exists(Path.Combine(d, "dsh.log"))
                                     || File.Exists(Path.Combine(d, "dsh-desktop.log"));
 
                 if (!nameMatch || !contentMatch)
@@ -1841,14 +2898,9 @@ class DSHDesktopUninstaller
                     continue;
                 }
 
-                try
-                {
-                    Directory.Delete(d, true);
-                    Log("  Deleted temp directory: " + d);
-                }
-                catch
-                {
-                }
+                // Use the same retrying deleter as install/user-data directories
+                // so a briefly locked temp folder does not fail the cleanup.
+                DeleteDirectoryWithRetry(d);
             }
         }
         catch
@@ -1875,7 +2927,6 @@ class DSHDesktopUninstaller
 
     static void Log(string message)
     {
-        messages.Add(message);
         try
         {
             File.AppendAllText(LogFilePath, message + Environment.NewLine);
@@ -1884,6 +2935,18 @@ class DSHDesktopUninstaller
         {
         }
         Console.WriteLine(message);
+
+        try
+        {
+            if (progressForm != null && !progressForm.IsDisposed)
+            {
+                progressForm.Append(message);
+                Application.DoEvents();
+            }
+        }
+        catch
+        {
+        }
     }
 
     static void Pause()
@@ -1900,9 +2963,47 @@ class DSHDesktopUninstaller
             {
             }
         }
-#endregion
     }
+#endregion
 #region GUI (RetentionForm)
+    private class ProgressForm : Form
+    {
+        private TextBox txtLog;
+
+        public ProgressForm()
+        {
+            Text = "DSH 卸载进度";
+            StartPosition = FormStartPosition.CenterScreen;
+            FormBorderStyle = FormBorderStyle.Sizable;
+            MaximizeBox = false;
+            MinimizeBox = false;
+            ShowInTaskbar = true;
+            ClientSize = new Size(560, 320);
+            Font = new Font("Microsoft YaHei UI", 9F);
+
+            txtLog = new TextBox();
+            txtLog.Multiline = true;
+            txtLog.ScrollBars = ScrollBars.Both;
+            txtLog.ReadOnly = true;
+            txtLog.WordWrap = false;
+            txtLog.Dock = DockStyle.Fill;
+            Controls.Add(txtLog);
+        }
+
+        public void Append(string message)
+        {
+            try
+            {
+                txtLog.AppendText(message + Environment.NewLine);
+                txtLog.SelectionStart = txtLog.TextLength;
+                txtLog.ScrollToCaret();
+            }
+            catch
+            {
+            }
+        }
+    }
+
     class RetentionForm : Form
     {
         private class PresetListItem
@@ -2377,6 +3478,10 @@ class DSHDesktopUninstaller
             ShowInTaskbar = true;
             ClientSize = new Size(520, 650);
             Font = new Font("Microsoft YaHei UI", 9F);
+            // High-DPI: scale the fixed-pixel layout proportionally on 125%/150%
+            // displays (Option A — lightweight; avoids absolute-position drift).
+            AutoScaleMode = AutoScaleMode.Dpi;
+            AutoScaleDimensions = new SizeF(96F, 96F);
             Label lblCurrentDsh = new Label();
             lblCurrentDsh.Text = "当前DSH: " + DSHDesktopUninstaller.DetectedVariantLabel;
             lblCurrentDsh.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
