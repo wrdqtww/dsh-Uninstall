@@ -1,0 +1,565 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Security.Principal;
+using System.Text;
+using System.Threading;
+using System.Management;
+using System.Drawing;
+using System.Windows.Forms;
+using System.Windows.Forms.VisualStyles;
+using Microsoft.Win32;
+
+partial class DSHDesktopUninstaller
+{
+
+#region Process & File Cleanup
+    static void KillDSHProcesses()
+    {
+        Log("[1/9] Stopping DSH Desktop processes...");
+
+        // First pass: try graceful close when a main window exists,
+        // otherwise terminate the process directly.
+        foreach (Process p in Process.GetProcesses())
+        {
+            try
+            {
+                if (IsDshProcess(p))
+                {
+                    if (p.MainWindowHandle != IntPtr.Zero)
+                    {
+                        p.CloseMainWindow();
+                        Log("  Sent close to: " + p.ProcessName + " (PID " + p.Id + ")");
+                    }
+                    else
+                    {
+                        p.Kill();
+                        Log("  Killed: " + p.ProcessName + " (PID " + p.Id + ")");
+                    }
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        // Wait up to 3 seconds for graceful shutdown, re-enumerating each time.
+        for (int i = 0; i < 10; i++)
+        {
+            bool anyAlive = false;
+            foreach (Process p in Process.GetProcesses())
+            {
+                try
+                {
+                    if (IsDshProcess(p))
+                    {
+                        anyAlive = true;
+                        break;
+                    }
+                }
+                catch
+                {
+                }
+            }
+            if (!anyAlive) break;
+            Thread.Sleep(300);
+        }
+
+        // Second pass: force-kill any remaining DSH processes.
+        foreach (Process p in Process.GetProcesses())
+        {
+            try
+            {
+                if (IsDshProcess(p))
+                {
+                    p.Kill();
+                    Log("  Force killed: " + p.ProcessName + " (PID " + p.Id + ")");
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        // Final pass: use taskkill /F /T so Electron child-process trees are
+        // removed as a whole (main process alone may leave renderer/gpu children).
+        // Try both image-name spellings; some processes report no .exe suffix.
+        foreach (string name in KnownProcessNames)
+        {
+            RunTaskKill("/F /IM \"" + name + ".exe\" /T");
+            RunTaskKill("/F /IM \"" + name + "\" /T");
+        }
+        foreach (Process p in Process.GetProcesses())
+        {
+            try
+            {
+                if (IsDshProcess(p))
+                {
+                    RunTaskKill("/F /T /PID " + p.Id);
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        Thread.Sleep(500);
+    }
+
+    static void RunTaskKill(string arguments)
+    {
+        try
+        {
+            ProcessStartInfo psi = new ProcessStartInfo("taskkill.exe", arguments);
+            psi.UseShellExecute = false;
+            psi.CreateNoWindow = true;
+            using (Process p = Process.Start(psi))
+            {
+                p.WaitForExit(10000);
+            }
+        }
+        catch
+        {
+        }
+    }
+
+    static bool IsDshProcess(Process p)
+    {
+        try
+        {
+            string path = GetProcessExecutablePath(p);
+            if (!string.IsNullOrEmpty(path))
+            {
+                try
+                {
+                    if (path.Equals(Assembly.GetEntryAssembly().Location, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return false;
+                    }
+                }
+                catch
+                {
+                }
+
+                if (!string.IsNullOrEmpty(DshInstallDir) &&
+                    path.StartsWith(DshInstallDir + "\\", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+
+                string fileName = Path.GetFileName(path);
+                if (IsKnownExeName(fileName))
+                {
+                    return true;
+                }
+            }
+
+            if (IsKnownProcessName(p.ProcessName))
+            {
+                return true;
+            }
+        }
+        catch
+        {
+        }
+        return false;
+    }
+
+    static void DeleteDirectoryWithRetry(string dir)
+    {
+        if (string.IsNullOrEmpty(dir)) return;
+        if (!Directory.Exists(dir)) return;
+
+        for (int i = 0; i < 8; i++)
+        {
+            try
+            {
+                DeleteDirectorySafe(dir);
+                Log("  Deleted directory: " + dir);
+                return;
+            }
+            catch (Exception ex)
+            {
+                if (i == 7)
+                {
+                    Log("  Failed to delete (may be in use): " + dir + " -> " + ex.Message);
+                    failureCount++;
+                }
+                else
+                {
+                    Thread.Sleep(800);
+                }
+            }
+        }
+    }
+
+    static void DeleteDirectorySafe(string path)
+    {
+        if (!Directory.Exists(path)) return;
+
+        FileAttributes attr = File.GetAttributes(path);
+        if ((attr & FileAttributes.ReparsePoint) != 0)
+        {
+            // Never follow a reparse point into its target.
+            Directory.Delete(path, false);
+            return;
+        }
+
+        // Clear read-only attributes and delete all files first. Do not swallow
+        // exceptions: a locked file must make DeleteDirectoryWithRetry retry the
+        // whole directory and eventually count the failure in silent mode.
+        foreach (string file in Directory.GetFiles(path))
+        {
+            File.SetAttributes(file, FileAttributes.Normal);
+            File.Delete(file);
+        }
+
+        // Recurse into subdirectories, then remove the now-empty directory.
+        // Exceptions propagate so the outer retry loop sees the failure.
+        foreach (string sub in Directory.GetDirectories(path))
+        {
+            DeleteDirectorySafe(sub);
+        }
+
+        Directory.Delete(path, false);
+    }
+
+    static void DeleteFileIfExists(string file)
+    {
+        if (string.IsNullOrEmpty(file)) return;
+        if (!File.Exists(file)) return;
+
+        try
+        {
+            File.Delete(file);
+            Log("  Deleted file: " + file);
+        }
+        catch (Exception ex)
+        {
+            Log("  Failed to delete file: " + file + " -> " + ex.Message);
+            failureCount++;
+        }
+    }
+#endregion
+
+#region Registry & PATH Cleanup
+    static void DeleteRegistryKeys()
+    {
+        Log("[2/9] Cleaning registry...");
+
+        DeleteMatchingUninstallKeys(RegistryHive.LocalMachine, RegistryView.Registry64, "HKLM 64-bit");
+        DeleteMatchingUninstallKeys(RegistryHive.LocalMachine, RegistryView.Registry32, "HKLM 32-bit");
+        DeleteMatchingUninstallKeys(RegistryHive.CurrentUser, RegistryView.Registry64, "HKCU 64-bit");
+        DeleteMatchingUninstallKeys(RegistryHive.CurrentUser, RegistryView.Registry32, "HKCU 32-bit");
+
+        // Legacy hardcoded key: harmless fallback if a future entry stops
+        // exposing usual values (DisplayName/DisplayIcon/UninstallString).
+        try
+        {
+            using (RegistryKey key = Registry.LocalMachine.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall", true))
+            {
+                if (key != null && key.OpenSubKey("62276e9d-c5f3-5091-b4ee-c7144d6db450") != null)
+                {
+                    key.DeleteSubKeyTree("62276e9d-c5f3-5091-b4ee-c7144d6db450", false);
+                    Log("  Deleted legacy HKLM uninstall key: " + LegacyUninstallRegKey);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log("  Failed to delete legacy HKLM uninstall key: " + ex.Message);
+        }
+
+        foreach (string appId in KnownAppIds)
+        {
+            DeleteRegSubKey(Registry.CurrentUser, @"Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\" + appId, "HKCU notification settings");
+            DeleteRegSubKey(Registry.CurrentUser, @"Software\Microsoft\Windows\CurrentVersion\PushNotifications\Backup\" + appId, "HKCU push backup");
+        }
+
+        // 历史遗留变量，某些旧版本 DSH 曾使用，卸载时清理
+        try
+        {
+            using (RegistryKey key = Registry.CurrentUser.OpenSubKey("Environment", true))
+            {
+                if (key != null && key.GetValue("VIPSHOME") != null)
+                {
+                    key.DeleteValue("VIPSHOME");
+                    Log("  Deleted user environment variable VIPSHOME");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log("  Failed to delete VIPSHOME: " + ex.Message);
+        }
+    }
+
+    static bool IsKnownAppId(string id)
+    {
+        if (string.IsNullOrEmpty(id)) return false;
+        foreach (string known in KnownAppIds)
+        {
+            if (known.Equals(id, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
+    }
+
+    // Some uninstall registry keys are named "<AppId>_is1" or "<AppId>-extra".
+    static bool MatchesKnownAppId(string id)
+    {
+        if (string.IsNullOrEmpty(id)) return false;
+        if (IsKnownAppId(id)) return true;
+        foreach (string known in KnownAppIds)
+        {
+            if (id.StartsWith(known + "_", StringComparison.OrdinalIgnoreCase) ||
+                id.StartsWith(known + "-", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static void DeleteMatchingUninstallKeys(RegistryHive hive, RegistryView view, string label)
+    {
+        try
+        {
+            using (RegistryKey baseKey = RegistryKey.OpenBaseKey(hive, view))
+            using (RegistryKey uninstallRoot = baseKey.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall", true))
+            {
+                if (uninstallRoot == null) return;
+                string[] names = uninstallRoot.GetSubKeyNames();
+                foreach (string name in names)
+                {
+                    bool matched = false;
+                    // Each subkey is handled independently so a single
+                    // permission/read failure does not abort the whole scan.
+                    try
+                    {
+                        using (RegistryKey sub = uninstallRoot.OpenSubKey(name))
+                        {
+                            if (sub == null) continue;
+                            string displayName = sub.GetValue("DisplayName") as string;
+                            string displayIcon = sub.GetValue("DisplayIcon") as string;
+                            string uninstallString = sub.GetValue("UninstallString") as string;
+                            string quietUninstallString = sub.GetValue("QuietUninstallString") as string;
+                            string installLocation = sub.GetValue("InstallLocation") as string;
+                            string bundleCachePath = sub.GetValue("BundleCachePath") as string;
+                            string publisher = sub.GetValue("Publisher") as string;
+                            string urlInfoAbout = sub.GetValue("URLInfoAbout") as string;
+                            matched = IsDshUninstallEntry(displayName, displayIcon, uninstallString, quietUninstallString, installLocation, bundleCachePath, publisher, urlInfoAbout) ||
+                                      MatchesKnownAppId(name);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Log("  Failed to read " + label + " uninstall key " + name + ": " + ex.Message);
+                        continue;
+                    }
+
+                    if (matched)
+                    {
+                        try
+                        {
+                            uninstallRoot.DeleteSubKeyTree(name, false);
+                            Log("  Deleted " + label + " uninstall key: " + Path.Combine(uninstallRoot.Name, name));
+                        }
+                        catch (Exception ex)
+                        {
+                            Log("  Failed to delete " + label + " uninstall key " + name + ": " + ex.Message);
+                            failureCount++;
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log("  Failed to scan " + label + " uninstall keys: " + ex.Message);
+        }
+    }
+
+    static void DeleteRegSubKey(RegistryKey root, string subKey, string label)
+    {
+        try
+        {
+            using (RegistryKey key = root.OpenSubKey(subKey))
+            {
+                if (key == null) return;
+            }
+            root.DeleteSubKeyTree(subKey, false);
+            Log("  Deleted " + label + ": " + subKey);
+        }
+        catch (Exception ex)
+        {
+            Log("  Failed to delete " + label + ": " + ex.Message);
+            failureCount++;
+        }
+    }
+
+    static void CleanupMachinePath()
+    {
+        Log("[3/9] Cleaning machine PATH...");
+        try
+        {
+            using (RegistryKey key = Registry.LocalMachine.OpenSubKey(MachineEnvKey, true))
+            {
+                CleanPathRegistryKey(key, "machine");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log("  Failed to clean machine PATH: " + ex.Message);
+        }
+    }
+
+    // Also clean the user-level PATH (HKCU\Environment) which DSH installers
+    // may append to; this was previously not handled.
+    static void CleanupUserPath()
+    {
+        Log("[3b/9] Cleaning user PATH...");
+        try
+        {
+            using (RegistryKey key = Registry.CurrentUser.OpenSubKey("Environment", true))
+            {
+                CleanPathRegistryKey(key, "user");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log("  Failed to clean user PATH: " + ex.Message);
+        }
+    }
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);
+
+    static void BroadcastEnvironmentChange()
+    {
+        try
+        {
+            UIntPtr result;
+            SendMessageTimeout((IntPtr)0xffff, 0x001A, UIntPtr.Zero, "Environment", 0x0002, 5000, out result);
+            Log("  Broadcast WM_SETTINGCHANGE for environment variables.");
+        }
+        catch (Exception ex)
+        {
+            Log("  Failed to broadcast environment change: " + ex.Message);
+        }
+    }
+
+    static void CleanupRunKeys()
+    {
+        Log("[3c/9] Cleaning Run/RunOnce startup entries...");
+        RegistryHive[] hives = new RegistryHive[] { RegistryHive.LocalMachine, RegistryHive.CurrentUser };
+        RegistryView[] views = new RegistryView[] { RegistryView.Registry64, RegistryView.Registry32 };
+        string[] subKeys = new string[]
+        {
+            @"Software\Microsoft\Windows\CurrentVersion\Run",
+            @"Software\Microsoft\Windows\CurrentVersion\RunOnce"
+        };
+        foreach (RegistryHive hive in hives)
+        {
+            foreach (RegistryView view in views)
+            {
+                foreach (string subKey in subKeys)
+                {
+                    try
+                    {
+                        using (RegistryKey baseKey = RegistryKey.OpenBaseKey(hive, view))
+                        using (RegistryKey run = baseKey.OpenSubKey(subKey, true))
+                        {
+                            if (run == null) continue;
+                            foreach (string valueName in run.GetValueNames())
+                            {
+                                try
+                                {
+                                    string value = run.GetValue(valueName, "").ToString();
+                                    if (IsDshRelatedName(valueName) || IsDshRelatedName(value) || IsDshRelatedPath(value))
+                                    {
+                                        run.DeleteValue(valueName, false);
+                                        Log("  Deleted startup entry (" + subKey + "): " + valueName + " = " + value);
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    Log("  Failed to delete startup entry " + valueName + " (" + subKey + "): " + ex.Message);
+                                    failureCount++;
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Log("  Failed to scan startup key (" + subKey + ", " + hive + ", " + view + "): " + ex.Message);
+                    }
+                }
+            }
+        }
+    }
+
+    static void CleanPathRegistryKey(RegistryKey key, string scope)
+    {
+        if (key == null) return;
+        string path = (key.GetValue("Path", "") ?? "").ToString();
+        string[] parts = path.Split(new char[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
+        List<string> kept = new List<string>();
+        bool changed = false;
+        foreach (string part in parts)
+        {
+            string trimmed = part.Trim().TrimEnd('\\');
+            if (IsDshPathEntry(trimmed))
+            {
+                changed = true;
+                Log("  Removed from " + scope + " PATH: " + part);
+            }
+            else
+            {
+                kept.Add(part);
+            }
+        }
+        if (changed)
+        {
+            // Preserve the original value kind. Some systems only accept
+            // REG_SZ for PATH and reject changing it to REG_EXPAND_SZ.
+            RegistryValueKind kind = RegistryValueKind.String;
+            try
+            {
+                kind = key.GetValueKind("Path");
+                if (kind == RegistryValueKind.None || kind == RegistryValueKind.Unknown)
+                {
+                    kind = RegistryValueKind.String;
+                }
+            }
+            catch
+            {
+                kind = RegistryValueKind.String;
+            }
+            key.SetValue("Path", string.Join(";", kept.ToArray()), kind);
+        }
+    }
+
+    static bool IsDshPathEntry(string trimmed)
+    {
+        if (string.IsNullOrEmpty(trimmed)) return false;
+
+        // PATH entries may contain %USERPROFILE% etc.; expand before
+        // comparing so REG_EXPAND_SZ entries are matched too.
+        string expanded = trimmed;
+        try { expanded = Environment.ExpandEnvironmentVariables(trimmed); } catch { }
+
+        if (expanded.Equals(Path.Combine(DshRuntime, "node"), StringComparison.OrdinalIgnoreCase)) return true;
+        if (expanded.Equals(Path.Combine(DshHome, "bin"), StringComparison.OrdinalIgnoreCase)) return true;
+        if (!string.IsNullOrEmpty(DshInstallDir) &&
+            (expanded.StartsWith(DshInstallDir.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase) ||
+             trimmed.StartsWith(DshInstallDir.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase))) return true;
+        // Broader heuristic for variants not installed in the detected dir.
+        return IsDshRelatedPath(trimmed) || IsDshRelatedPath(expanded);
+    }
+#endregion
+
+}

@@ -79,15 +79,19 @@ build\Uninstall_DSH_Desktop.exe
 
 ```
 dsh-Uninstall/
-├── DSH_Desktop_Uninstaller.cs      # 主程序源码
-├── DshRetentionContract.cs         # 保留项扩展契约
-├── DSH_Desktop_卸载说明.txt          # 详细使用/卸载说明
-├── embed-icon-in-exe.ps1           # 构建时把图标写入 exe
-├── make-uninstaller-icon.ps1       # 从 PNG 生成多尺寸 ICO（仅开发用）
-├── Uninstall_DSH_Desktop.exe       # 预编译的单文件卸载器
-├── Uninstall_DSH_Desktop_icon.ico  # 卸载器图标
+├── DSH_Desktop_Uninstaller.cs                 # 入口 + 命令行解析 + 卸载流水线 + 日志
+├── DSH_Desktop_Uninstaller.Core.cs            # 变体目录 / 名称匹配 / 保留选项 / 纯函数
+├── DSH_Desktop_Uninstaller.Detection.cs       # 注册表 / 进程 / 安装目录 / 变体识别
+├── DSH_Desktop_Uninstaller.Cleanup.cs         # 进程结束 / 文件与注册表清理 / PATH 清理
+├── DSH_Desktop_Uninstaller.Retention.cs       # 预设 / 插件 / skills 检测与保留逻辑
+├── DSH_Desktop_Uninstaller.Gui.cs             # 确认弹窗 / 保留项复选列表 / 进度窗口
+├── DSH_Desktop_卸载说明.txt                     # 详细使用/卸载说明
+├── embed-icon-in-exe.ps1                      # 构建时把图标写入 exe
+├── make-uninstaller-icon.ps1                  # 从 PNG 生成多尺寸 ICO（仅开发用）
+├── Uninstall_DSH_Desktop.exe                  # 预编译的单文件卸载器
+├── Uninstall_DSH_Desktop_icon.ico             # 卸载器图标
 ├── Uninstall_DSH_Desktop_icon_preview.png
-├── build-uninstaller.ps1           # 一键构建脚本
+├── build-uninstaller.ps1                      # 一键构建脚本（自动编译根目录全部 .cs）
 ├── README.md
 └── .gitignore
 ```
