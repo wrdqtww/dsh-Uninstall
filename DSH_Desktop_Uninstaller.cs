@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -6,6 +6,7 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
+using System.Text;
 using System.Threading;
 using System.Management;
 using System.Drawing;
@@ -244,17 +245,27 @@ class DSHDesktopUninstaller
     }
     static bool useDetectedRunningDsh = false;
     static string selfTempDir = string.Empty;
+    static string logOverridePath = string.Empty;
+    static string logCopyPath = string.Empty;
+    static bool logAvailable = false;
     static string DetectedRunningDshDir = SafeFindRunningDshInstallDir();
     static string DetectedVariantLabel = SafeResolveVariantLabel();
+    static string LogFilePath = ResolveLogFilePath();
     static bool VariantProfileApplied = ApplyVariantProfile();
 
-    static string LogFilePath = ResolveLogFilePath();
-
-    // Always write Log.log next to the running uninstaller, never to a
-    // fixed C-drive location. The current directory may be read-only in
-    // some edge cases; Log() swallows the failure so cleanup still runs.
     static string ResolveLogFilePath()
     {
+        try
+        {
+            string exeDir = Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
+            if (!string.IsNullOrEmpty(exeDir))
+            {
+                return Path.Combine(exeDir, "Log.log");
+            }
+        }
+        catch
+        {
+        }
         try
         {
             return Path.Combine(Directory.GetCurrentDirectory(), "Log.log");
@@ -798,7 +809,7 @@ class DSHDesktopUninstaller
         if (lower.Contains("steven-kid")) return "第三方 steven-kid/deepseek-harness-desktop";
         if (lower.Contains("deepseek harness desktop")) return "第三方 Easyhoov/deepseek-harness-desktop-windows";
         if (lower.Contains("dsh-desktop-hub") || lower.Contains("dsh desktop hub")) return "第三方 FlashingChen/dsh-desktop-hub";
-        if (lower.Contains("dsh-desktop-client")) return "第三方 Ackow/dshdesktop-client";
+        if (lower.Contains("dsh-desktop-client")) return string.Empty; // npm plugin, not a desktop repo
         if (lower.Contains("dsh-cockpit") || lower.Contains("dsh cockpit")) return "第三方 Lxiayu/DshCockpit";
         if (lower.Contains("dsh-studio")) return "第三方 gxcsoccer/dsh-studio";
         if (lower.Contains("dsh-electron-shell")) return "第三方 citrusli2026/dsh-electron-shell";
@@ -1077,7 +1088,8 @@ class DSHDesktopUninstaller
             || path.IndexOf("dsh-electron-shell", StringComparison.OrdinalIgnoreCase) >= 0
             || path.IndexOf("DeepSeek Harness Desktop", StringComparison.OrdinalIgnoreCase) >= 0
             || path.IndexOf("DeepSeek Harness", StringComparison.OrdinalIgnoreCase) >= 0
-            || path.IndexOf("deepseek-harness", StringComparison.OrdinalIgnoreCase) >= 0;
+             || path.IndexOf("deepseek-harness", StringComparison.OrdinalIgnoreCase) >= 0
+             || path.IndexOf("dsh-runtime", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
     static string ParseExePathFromCommandLine(string commandLine)
@@ -1230,6 +1242,10 @@ class DSHDesktopUninstaller
     static int Main(string[] args)
     {
         ParseArgs(args);
+        if (!string.IsNullOrEmpty(logOverridePath))
+        {
+            LogFilePath = logOverridePath;
+        }
         InitializeLog();
         Log("Detected DSH: " + DetectedVariantLabel);
         if (VariantProfileApplied)
@@ -1302,6 +1318,7 @@ class DSHDesktopUninstaller
             catch (Exception ex)
             {
                 Log("Failed to relocate uninstaller for self-deletion: " + ex.Message);
+                ScheduleSelfTempDeletion();
             }
         }
 
@@ -1476,6 +1493,16 @@ class DSHDesktopUninstaller
             {
                 manualInstallDir = (value ?? string.Empty).Trim().Trim('"').TrimEnd('\\');
             }
+            else if (arg.Equals("/Log", StringComparison.OrdinalIgnoreCase) ||
+                     arg.Equals("-Log", StringComparison.OrdinalIgnoreCase) ||
+                     arg.Equals("/LogFile", StringComparison.OrdinalIgnoreCase) ||
+                     arg.Equals("-LogFile", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    logOverridePath = value.Trim().Trim('\"');
+                }
+            }
             else if (arg.Equals("/DryRun", StringComparison.OrdinalIgnoreCase) ||
                      arg.Equals("-DryRun", StringComparison.OrdinalIgnoreCase) ||
                      arg.Equals("/Preview", StringComparison.OrdinalIgnoreCase) ||
@@ -1514,9 +1541,38 @@ class DSHDesktopUninstaller
                 quoted.Add(a);
                 continue;
             }
-            quoted.Add("\"" + a.Replace("\"", "\\\"") + "\"");
+            quoted.Add("\"" + EscapeWindowsArg(a) + "\"");
         }
         return string.Join(" ", quoted.ToArray());
+    }
+
+    // Windows command-line parsing: inside a quoted argument, backslashes
+    // before a quote must be doubled, and a trailing backslash before the
+    // closing quote must also be doubled so it is not treated as an escape.
+    static string EscapeWindowsArg(string a)
+    {
+        StringBuilder sb = new StringBuilder();
+        int backslashes = 0;
+        foreach (char c in a)
+        {
+            if (c == '\\')
+            {
+                backslashes++;
+                continue;
+            }
+            if (c == '"')
+            {
+                sb.Append('\\', backslashes * 2 + 1);
+                sb.Append('"');
+                backslashes = 0;
+                continue;
+            }
+            sb.Append('\\', backslashes);
+            sb.Append(c);
+            backslashes = 0;
+        }
+        sb.Append('\\', backslashes * 2);
+        return sb.ToString();
     }
 
     static void PrintUsage()
@@ -1530,6 +1586,7 @@ class DSHDesktopUninstaller
         Console.WriteLine("    /DetectRunning         优先检测正在运行的 DSH 安装目录");
         Console.WriteLine("    /Default               使用默认检测（注册表/常见路径）");
         Console.WriteLine("    /InstallDir=<路径>     手动指定安装目录");
+        Console.WriteLine("    /Log=<路径>           指定日志文件路径（默认 exe 同目录 Log.log）");
         Console.WriteLine("    /DryRun                只检测并列出将删除/保留的内容，不实际删除");
         Console.WriteLine("    /help 或 /?            显示本帮助");
         Console.WriteLine();
@@ -1832,6 +1889,86 @@ class DSHDesktopUninstaller
         }
     }
 
+    // If Log.log lives inside a directory that Run() will delete, create a
+    // safe copy first and dual-write to it for the rest of the run. The
+    // copy goes to the exe directory's parent when possible (desktop as a
+    // last resort), so no fixed C-drive log path is introduced.
+    static void PreserveLogCopyIfNeeded()
+    {
+        if (!logAvailable || !string.IsNullOrEmpty(logCopyPath)) return;
+        try
+        {
+            string exeDir = Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
+            if (string.IsNullOrEmpty(exeDir)) return;
+
+            List<string> doomed = new List<string>();
+            if (!string.IsNullOrEmpty(DshInstallDir)) doomed.Add(DshInstallDir);
+            if (!string.IsNullOrEmpty(DshHome)) doomed.Add(DshHome);
+            if (!string.IsNullOrEmpty(DshRuntime)) doomed.Add(DshRuntime);
+            if (!string.IsNullOrEmpty(selfTempDir)) doomed.Add(selfTempDir);
+            foreach (string d in GetKnownExtraDirectories())
+            {
+                if (!string.IsNullOrEmpty(d)) doomed.Add(d);
+            }
+
+            if (!IsPathUnderAny(exeDir, doomed)) return;
+
+            string safeDir = Path.GetDirectoryName(exeDir);
+            if (string.IsNullOrEmpty(safeDir))
+            {
+                safeDir = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+            }
+
+            string copyPath = Path.Combine(safeDir, "DSH_Uninstaller_" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".log");
+            if (!copyPath.Equals(LogFilePath, StringComparison.OrdinalIgnoreCase))
+            {
+                File.Copy(LogFilePath, copyPath, true);
+                logCopyPath = copyPath;
+                Log("Log copy preserved at: " + copyPath);
+            }
+        }
+        catch
+        {
+            // Desktop fallback: keep the log even if the parent directory is
+            // not writable (e.g. exe sits directly under a drive root).
+            try
+            {
+                string desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+                if (!string.IsNullOrEmpty(desktop))
+                {
+                    string copyPath = Path.Combine(desktop, "DSH_Uninstaller_" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".log");
+                    if (!copyPath.Equals(LogFilePath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        File.Copy(LogFilePath, copyPath, true);
+                        logCopyPath = copyPath;
+                        Log("Log copy preserved on desktop: " + copyPath);
+                    }
+                }
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    static bool IsPathUnderAny(string path, IEnumerable<string> dirs)
+    {
+        try
+        {
+            string full = Path.GetFullPath(path).TrimEnd('\\') + "\\";
+            foreach (string d in dirs)
+            {
+                if (string.IsNullOrEmpty(d)) continue;
+                string dfull = Path.GetFullPath(d).TrimEnd('\\') + "\\";
+                if (full.StartsWith(dfull, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+        }
+        catch
+        {
+        }
+        return false;
+    }
+
     static void Run()
     {
         if (!string.IsNullOrEmpty(manualInstallDir))
@@ -1841,6 +1978,13 @@ class DSHDesktopUninstaller
             {
                 DshInstallDir = manualInstallDir;
                 Log("Uninstall mode: manual install dir -> " + manualInstallDir);
+                // Re-derive the variant label and targeted cleanup lists so the
+                // GUI label and Known* arrays match the manually selected dir.
+                string manualLabel = ResolveLabelFromPath(DshInstallDir);
+                if (string.IsNullOrEmpty(manualLabel)) manualLabel = "未知";
+                DetectedVariantLabel = manualLabel;
+                ApplyVariantProfile();
+                Log("Variant label updated from manual install dir: " + DetectedVariantLabel);
             }
             else
             {
@@ -1875,6 +2019,7 @@ class DSHDesktopUninstaller
         }
         Log("");
 
+        PreserveLogCopyIfNeeded();
         KillDSHProcesses();
         DeleteDirectoryWithRetry(DshInstallDir);
         foreach (string dir in GetKnownExtraDirectories())
@@ -1964,7 +2109,7 @@ class DSHDesktopUninstaller
         try
         {
             if (HasDshExecutable(dir)) return true;
-            if (File.Exists(Path.Combine(dir, "app.asar"))) return true;
+            if (File.Exists(Path.Combine(dir, "resources", "app.asar"))) return true;
             if (Directory.Exists(Path.Combine(dir, "resources", "app"))) return true;
             string pkgFile = Path.Combine(dir, "package.json");
             if (File.Exists(pkgFile))
@@ -2573,7 +2718,7 @@ class DSHDesktopUninstaller
     static void CleanPathRegistryKey(RegistryKey key, string scope)
     {
         if (key == null) return;
-        string path = key.GetValue("Path", "").ToString();
+        string path = (key.GetValue("Path", "") ?? "").ToString();
         string[] parts = path.Split(new char[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
         List<string> kept = new List<string>();
         bool changed = false;
@@ -2614,12 +2759,19 @@ class DSHDesktopUninstaller
     static bool IsDshPathEntry(string trimmed)
     {
         if (string.IsNullOrEmpty(trimmed)) return false;
-        if (trimmed.Equals(Path.Combine(DshRuntime, "node"), StringComparison.OrdinalIgnoreCase)) return true;
-        if (trimmed.Equals(Path.Combine(DshHome, "bin"), StringComparison.OrdinalIgnoreCase)) return true;
+
+        // PATH entries may contain %USERPROFILE% etc.; expand before
+        // comparing so REG_EXPAND_SZ entries are matched too.
+        string expanded = trimmed;
+        try { expanded = Environment.ExpandEnvironmentVariables(trimmed); } catch { }
+
+        if (expanded.Equals(Path.Combine(DshRuntime, "node"), StringComparison.OrdinalIgnoreCase)) return true;
+        if (expanded.Equals(Path.Combine(DshHome, "bin"), StringComparison.OrdinalIgnoreCase)) return true;
         if (!string.IsNullOrEmpty(DshInstallDir) &&
-            trimmed.StartsWith(DshInstallDir.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase)) return true;
+            (expanded.StartsWith(DshInstallDir.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase) ||
+             trimmed.StartsWith(DshInstallDir.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase))) return true;
         // Broader heuristic for variants not installed in the detected dir.
-        return IsDshRelatedPath(trimmed);
+        return IsDshRelatedPath(trimmed) || IsDshRelatedPath(expanded);
     }
 #endregion
 
@@ -2911,6 +3063,7 @@ class DSHDesktopUninstaller
 #region Logging & Helpers
     static void InitializeLog()
     {
+        logAvailable = false;
         try
         {
             string dir = Path.GetDirectoryName(LogFilePath);
@@ -2919,6 +3072,7 @@ class DSHDesktopUninstaller
                 Directory.CreateDirectory(dir);
             }
             File.WriteAllText(LogFilePath, "===== DSH Desktop Uninstaller Log " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " =====" + Environment.NewLine);
+            logAvailable = true;
         }
         catch
         {
@@ -2927,13 +3081,32 @@ class DSHDesktopUninstaller
 
     static void Log(string message)
     {
-        try
+        if (logAvailable)
         {
-            File.AppendAllText(LogFilePath, message + Environment.NewLine);
+            try
+            {
+                File.AppendAllText(LogFilePath, message + Environment.NewLine);
+            }
+            catch
+            {
+            }
+
+            // When the log sits inside a directory that will be deleted,
+            // keep a second copy in a safe place and write to both so the
+            // retained copy stays complete after the original is removed.
+            if (!string.IsNullOrEmpty(logCopyPath) &&
+                !logCopyPath.Equals(LogFilePath, StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    File.AppendAllText(logCopyPath, message + Environment.NewLine);
+                }
+                catch
+                {
+                }
+            }
         }
-        catch
-        {
-        }
+
         Console.WriteLine(message);
 
         try

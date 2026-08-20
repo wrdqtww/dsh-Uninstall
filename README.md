@@ -20,7 +20,7 @@ DSH / DeepSeek Harness 桌面端独立卸载器。单个 exe 即可运行，支�
   - 其他 `.dsh` 数据
   - `.dsh-runtime`
 - **静默卸载**：`/S` 支持不弹窗执行，并可用命令行参数指定保留项。
-- **日志**：运行结束后在当前目录生成 `Log.log`，记录卸载过程、保留项与错误。
+- **日志**：默认在 exe 同目录生成 `Log.log`；若该目录会被卸载删除，自动保留副本到上一级目录（不可写时到桌面）。可用 `/Log=<路径>` 指定。
 - **单文件发布**：最终 `Uninstall_DSH_Desktop.exe` 只依赖 Windows 自带的 .NET Framework 4.x，不调用额外脚本/DLL。
 
 ## 使用
@@ -57,6 +57,7 @@ Uninstall_DSH_Desktop.exe /DryRun
 | `/DetectRunning` | 识别当前正在运行的 DSH 并卸载其目录，别名 `/DetectDSH` |
 | `/Default` | 默认卸载模式（注册表/常见安装位置检测） |
 | `/InstallDir=C:\path\to\app` | 手动指定要卸载的安装目录（仅接受安全路径） |
+| `/Log=<完整文件路径>` | 指定日志文件路径（默认见上方日志说明） |
 | `/DryRun` | 只列出将删除的目标与保留项，不做实际删除，别名 `/Preview` |
 | `/help` | 显示命令行选项说明 |
 
