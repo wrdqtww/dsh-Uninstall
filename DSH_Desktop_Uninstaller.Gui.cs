@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -16,6 +16,7 @@ partial class DSHDesktopUninstaller
         private Label lblCurrentOp;
         private ProgressBar progress;
         private TextBox txtLog;
+          public bool AllowClose = false;
 
         public ConfirmForm(string message)
         {
@@ -62,6 +63,7 @@ partial class DSHDesktopUninstaller
             MaximizeBox = false;
             MinimizeBox = false;
             ShowInTaskbar = true;
+            ControlBox = false;
             AutoScroll = true;
             ClientSize = new Size(580, 420);
 
@@ -73,8 +75,10 @@ partial class DSHDesktopUninstaller
             Controls.Add(lblCurrentOp);
 
             progress = new ProgressBar();
-            progress.Style = ProgressBarStyle.Marquee;
-            progress.MarqueeAnimationSpeed = 30;
+            progress.Style = ProgressBarStyle.Continuous;
+            progress.Minimum = 0;
+            progress.Maximum = 100;
+            progress.Value = 0;
             progress.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             progress.SetBounds(12, 42, 556, 20);
             Controls.Add(progress);
@@ -84,8 +88,8 @@ partial class DSHDesktopUninstaller
             txtLog.ReadOnly = true;
             txtLog.ScrollBars = ScrollBars.Both;
             txtLog.WordWrap = false;
-            txtLog.BackColor = System.Drawing.Color.Black;
-            txtLog.ForeColor = System.Drawing.Color.Lime;
+            txtLog.BackColor = System.Drawing.Color.White;
+            txtLog.ForeColor = System.Drawing.Color.Black;
             txtLog.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
             txtLog.SetBounds(12, 70, 556, 336);
             Controls.Add(txtLog);
@@ -93,17 +97,49 @@ partial class DSHDesktopUninstaller
 
         public void SetCurrentOp(string op)
         {
+            if (InvokeRequired) { try { BeginInvoke((Action)(() => SetCurrentOp(op))); } catch (Exception) { } return; }
             try
             {
                 if (lblCurrentOp != null) lblCurrentOp.Text = "\u5f53\u524d\u64cd\u4f5c\uff1a" + op;
             }
-            catch
+            catch (Exception)
             {
+                Log("  Warning: non-fatal error ignored.");
             }
+        }
+
+
+        public void SetProgress(int percent)
+        {
+            if (InvokeRequired) { try { BeginInvoke((Action)(() => SetProgress(percent))); } catch (Exception) { } return; }
+            try
+            {
+                if (progress == null) return;
+                int v = percent;
+                if (v < 0) v = 0;
+                if (v > 100) v = 100;
+                progress.Value = v;
+            }
+            catch (Exception)
+            {
+                Log("  Warning: non-fatal error ignored.");
+            }
+        }
+
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            if (!AllowClose && progress != null)
+            {
+                e.Cancel = true;
+                return;
+            }
+            base.OnFormClosing(e);
         }
 
         public void Append(string message)
         {
+            if (InvokeRequired) { try { BeginInvoke((Action)(() => Append(message))); } catch (Exception) { } return; }
             try
             {
                 if (txtLog == null) return;
@@ -116,8 +152,9 @@ partial class DSHDesktopUninstaller
                     SetCurrentOp(t);
                 }
             }
-            catch
+            catch (Exception)
             {
+                Log("  Warning: non-fatal error ignored.");
             }
         }
     }
@@ -812,3 +849,4 @@ partial class DSHDesktopUninstaller
 
 #endregion
 }
+

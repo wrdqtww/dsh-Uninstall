@@ -44,21 +44,22 @@ public static class VariantCatalog
     public static readonly List<VariantProfile> Profiles = new List<VariantProfile>()
     {
         new VariantProfile("deepseek-ai", "官方 deepseek-ai/deepseek-harness",  new[]{"com.deepseek.dsh.desktop"}, new string[0], new[]{"DSH Desktop.exe","dsh-desktop.exe"}, new[]{"DSH Desktop","dsh-desktop"}, new[]{"DSH Desktop.lnk","dsh-desktop.lnk"}, new[]{"dsh-desktop-updater","dsh-launcher-updater"}, new[]{"dsh-desktop","DSH Desktop"}, new[]{"DSH Desktop","dsh-desktop"}),
-        new VariantProfile("myyangyunfan", "第三方 myYangyunfan/dsh_desktop",  new[]{"com.deepseek.dsh.desktop"}, new[]{"DSH Desktop","dsh-desktop"}, new[]{"DSH Desktop.exe","dsh-desktop.exe"}, new[]{"DSH Desktop","dsh-desktop"}, new[]{"DSH Desktop.lnk","dsh-desktop.lnk"}, new[]{"dsh-desktop-updater","dsh-launcher-updater"}, new[]{"dsh-desktop","DSH Desktop"}, new[]{"DSH Desktop","dsh-desktop"}),
+        new VariantProfile("myyangyunfan", "第三方 myYangyunfan/dsh_desktop",  new[]{"com.deepseek.dsh.desktop"}, new[]{"DSH Desktop","dsh-desktop"}, new[]{"DSH Desktop.exe","dsh-desktop.exe","dsh-tauri-app.exe"}, new[]{"DSH Desktop","dsh-desktop","dsh-tauri-app"}, new[]{"DSH Desktop.lnk","dsh-desktop.lnk"}, new[]{"dsh-desktop-updater","dsh-launcher-updater"}, new[]{"dsh-desktop","DSH Desktop","com.deepseek.dsh.desktop"}, new[]{"DSH Desktop","dsh-desktop","com.deepseek.dsh.desktop"}),
         new VariantProfile("dataelement", "第三方 dataelement/dsh-desktop",  new[]{"io.dsh.desktop"}, new[]{"DSH Desktop","dsh-desktop"}, new[]{"DSH Desktop.exe","dsh-desktop.exe"}, new[]{"DSH Desktop","dsh-desktop"}, new[]{"DSH Desktop.lnk","dsh-desktop.lnk"}, new[]{"dsh-desktop-updater","dsh-launcher-updater"}, new[]{"dsh-desktop","DSH Desktop"}, new[]{"DSH Desktop","dsh-desktop"}),
         new VariantProfile("zouyuxuan122", "第三方 zouyuxuan122/Deepseek-Harness-EAC",  new[]{"com.deepseek.dsh.desktop"}, new[]{"Deepseek Harness EAC"}, new[]{"Deepseek Harness EAC.exe"}, new[]{"Deepseek Harness EAC"}, new[]{"Deepseek Harness EAC.lnk"}, new[]{"dsh-desktop-updater","dsh-launcher-updater"}, new[]{"Deepseek Harness EAC"}, new[]{"Deepseek Harness EAC"}),
         new VariantProfile("amazingboycrazy", "第三方 AmazingBoyCrazy/dsh_desktop",  new[]{"io.github.amazingboycrazy.dsh-desktop"}, new[]{"DeepSeek Harness Desktop"}, new[]{"DeepSeek Harness Desktop.exe"}, new[]{"DeepSeek Harness Desktop"}, new[]{"DeepSeek Harness Desktop.lnk"}, new[]{"dsh-desktop-updater","dsh-launcher-updater","dsh-updater"}, new[]{"DeepSeek Harness Desktop"}, new[]{"DeepSeek Harness Desktop"}),
         new VariantProfile("easyhoov", "第三方 Easyhoov/deepseek-harness-desktop-windows",  new[]{"com.deepseek.harness.desktop"}, new[]{"DeepSeek Harness Desktop"}, new[]{"DeepSeek Harness Desktop.exe"}, new[]{"DeepSeek Harness Desktop"}, new[]{"DeepSeek Harness Desktop.lnk"}, new[]{"dsh-desktop-updater","dsh-launcher-updater","dsh-updater"}, new[]{"DeepSeek Harness Desktop"}, new[]{"DeepSeek Harness Desktop"}),
         new VariantProfile("steven-kid", "第三方 steven-kid/deepseek-harness-desktop",  new[]{"io.github.steven-kid.deepseek-harness-desktop"}, new[]{"DeepSeek Harness","deepseek-harness"}, new[]{"DeepSeek Harness.exe","deepseek-harness.exe"}, new[]{"DeepSeek Harness","deepseek-harness"}, new[]{"DeepSeek Harness.lnk","deepseek-harness.lnk"}, new[]{"dsh-updater","dsh-launcher-updater"}, new[]{"DeepSeek Harness","deepseek-harness"}, new[]{"DeepSeek Harness","deepseek-harness"}),
-        new VariantProfile("lburny", "第三方 LBurny/deepseek-harness-desktop",  new[]{"com.dshdesktop.desktop"}, new[]{"DSHDesktop"}, new[]{"DSHDesktop.exe","dshdesktop.exe"}, new[]{"DSHDesktop","dshdesktop"}, new[]{"DSHDesktop.lnk","dshdesktop.lnk"}, new[]{"dsh-updater"}, new[]{"DSHDesktop","dshdesktop"}, new[]{"DSHDesktop","dshdesktop"}),
+        new VariantProfile("lburny", "第三方 LBurny/deepseek-harness-desktop",  new[]{"com.dshdesktop.desktop"}, new[]{"DSHDesktop"}, new[]{"DSHDesktop.exe","dshdesktop.exe"}, new[]{"DSHDesktop","dshdesktop"}, new[]{"DSHDesktop.lnk","dshdesktop.lnk"}, new[]{"dsh-updater"}, new[]{"DSHDesktop","dshdesktop","com.dshdesktop.desktop"}, new[]{"DSHDesktop","dshdesktop","com.dshdesktop.desktop"}),
         new VariantProfile("ackow", "第三方 Ackow/dsh-desktop",  new string[0], new string[0], new[]{"DSHDesktop.exe","dshdesktop.exe"}, new[]{"DSHDesktop","dshdesktop"}, new[]{"DSHDesktop.lnk","dshdesktop.lnk"}, new string[0], new[]{"DSHDesktop","dshdesktop"}, new[]{"DSHDesktop","dshdesktop"}),
         new VariantProfile("2633352305", "第三方 2633352305/DeepSeekHarness-Desktop",  new string[0], new[]{"dsh-edge-app"}, new string[0], new string[0], new[]{"DeepSeek Harness.lnk"}, new string[0], new string[0], new[]{"dsh-edge-app"}),
-        new VariantProfile("majiayu000", "第三方 majiayu000/dsh-desk",  new[]{"ai.deepseek.harness.desk"}, new[]{"DSH Desk"}, new[]{"DSH Desk.exe"}, new[]{"DSH Desk"}, new[]{"DSH Desk.lnk"}, new[]{"dsh-updater"}, new[]{"DSH Desk"}, new[]{"DSH Desk"}),
+        new VariantProfile("majiayu000", "第三方 majiayu000/dsh-desk",  new[]{"ai.deepseek.harness.desk"}, new[]{"DSH Desk","dsh-desk"}, new[]{"DSH Desk.exe","dsh-desk.exe"}, new[]{"DSH Desk","dsh-desk"}, new[]{"DSH Desk.lnk","dsh-desk.lnk"}, new[]{"dsh-updater"}, new[]{"DSH Desk","dsh-desk","ai.deepseek.harness.desk"}, new[]{"DSH Desk","dsh-desk","ai.deepseek.harness.desk"}),
         new VariantProfile("flashingchen", "第三方 FlashingChen/dsh-desktop-hub",  new[]{"com.dshdesktophub.app"}, new[]{"DSH Desktop Hub"}, new[]{"DSH Desktop Hub.exe"}, new[]{"DSH Desktop Hub"}, new[]{"DSH Desktop Hub.lnk"}, new[]{"dsh-updater"}, new[]{"DSH Desktop Hub"}, new[]{"DSH Desktop Hub"}),
         new VariantProfile("lxiayu", "第三方 Lxiayu/DshCockpit",  new[]{"com.dshcockpit.app"}, new string[0], new[]{"DshCockpit.exe"}, new[]{"DshCockpit"}, new[]{"DshCockpit.lnk"}, new string[0], new[]{"DshCockpit"}, new[]{"DshCockpit"}),
         new VariantProfile("ding7015869", "第三方 ding7015869-alt/dsh-web-desktop",  new string[0], new string[0], new[]{"DSH-Web.exe"}, new[]{"DSH-Web"}, new[]{"DSH-Web.lnk"}, new string[0], new[]{"DSH-Web"}, new[]{"DSH-Web"}),
         new VariantProfile("citrusli2026", "第三方 citrusli2026/dsh-electron-shell",  new[]{"io.github.citrusli2026.dsh-electron-shell"}, new[]{"dsh-desktop"}, new[]{"dsh-desktop.exe"}, new[]{"dsh-desktop"}, new[]{"dsh-desktop.lnk"}, new[]{"dsh-updater"}, new[]{"dsh-desktop"}, new[]{"dsh-desktop"}),
-        new VariantProfile("hastings0714", "第三方 hastings0714/dsh-client",  new string[0], new string[0], new[]{"dsh-client.exe"}, new[]{"dsh-client"}, new[]{"dsh-client.lnk"}, new string[0], new[]{"dsh-client"}, new[]{"dsh-client"}),
+        new VariantProfile("hastings0714", "第三方 hastings0714/dsh-client",  new string[0], new string[0], new[]{"dsh-client.exe"}, new[]{"dsh-client"}, new[]{"dsh-client.lnk"}, new string[0], new[]{"dsh-client","dev.dsh.client"}, new[]{"dsh-client","dev.dsh.client"}),
+          new VariantProfile("lai-133", "第三方 lai-133/dsh-integration",  new string[0], new[]{"dsh-desktop"}, new[]{"dsh-desktop.exe"}, new[]{"dsh-desktop"}, new[]{"dsh-desktop.lnk"}, new string[0], new[]{"dsh-desktop"}, new[]{"dsh-desktop"}),
     };
 
     /// <summary>Union of every AppId declared by any known profile.</summary>
@@ -82,6 +83,123 @@ public static class VariantCatalog
             }
         }
         return ids.ToArray();
+    }
+    // ------------------------------------------------------------------
+    // Generated all-variant name lists. Extra tokens cover historical or
+    // not-yet-profiled names; a new variant is normally added as one
+    // VariantProfile line above.
+    // ------------------------------------------------------------------
+    public static readonly string[] ExtraExeNames = new string[] {
+        "deepseek-harness-desktop.exe", "DSH-Desktop.exe", "DeepSeek-harness-Desktop.exe",
+        "dsh-studio.exe", "dsh-web-desktop.exe", "dsh-electron-shell.exe"
+    };
+    public static readonly string[] ExtraProcessNames = new string[] {
+        "deepseek-harness-desktop", "DSH-Desktop", "DeepSeek-harness-Desktop",
+        "dsh-studio", "dsh-web-desktop", "dsh-electron-shell"
+    };
+    public static readonly string[] ExtraShortcutNames = new string[] {
+        "deepseek-harness-desktop.lnk", "DSH-Desktop.lnk", "DeepSeek-harness-Desktop.lnk",
+        "dsh-studio.lnk", "dsh-web-desktop.lnk", "dsh-electron-shell.lnk"
+    };
+    public static readonly string[] ExtraRoamingDirNames = new string[] {
+        "deepseek-harness-desktop", "DSH-Desktop", "DeepSeek-harness-Desktop",
+        "dsh-studio", "dsh-web-desktop", "dsh-electron-shell", "dsh", ".dsh",
+        "com.deepseek.dsh.desktop", "com.dshdesktop.desktop",
+        "ai.deepseek.harness.desk", "dev.dsh.client"
+    };
+    public static readonly string[] ExtraLocalAppDataDirNames = new string[] {
+        "deepseek-harness-desktop", "DSH-Desktop", "DeepSeek-harness-Desktop",
+        "dsh-studio", "dsh-web-desktop", "dsh-electron-shell", "dsh", ".dsh",
+        "com.deepseek.dsh.desktop", "com.dshdesktop.desktop",
+        "ai.deepseek.harness.desk", "dev.dsh.client"
+    };
+
+    public static readonly string[] AllExeNames = BuildNameUnion(p => p.ExeNames, ExtraExeNames);
+    public static readonly string[] AllProcessNames = BuildNameUnion(p => p.ProcessNames, ExtraProcessNames);
+    public static readonly string[] AllShortcutNames = BuildNameUnion(p => p.ShortcutNames, ExtraShortcutNames);
+    public static readonly string[] AllRoamingDirNames = BuildNameUnion(p => p.RoamingDirNames, ExtraRoamingDirNames);
+    public static readonly string[] AllLocalAppDataDirNames = BuildNameUnion(p => p.LocalAppDataDirNames, ExtraLocalAppDataDirNames);
+
+    static string[] BuildNameUnion(Func<VariantProfile, string[]> selector, string[] extra)
+    {
+        List<string> names = new List<string>();
+        foreach (VariantProfile p in Profiles)
+        {
+            string[] values = selector(p);
+            if (values == null) continue;
+            foreach (string v in values)
+            {
+                if (string.IsNullOrEmpty(v)) continue;
+                bool seen = false;
+                foreach (string existing in names)
+                {
+                    if (existing.Equals(v, StringComparison.OrdinalIgnoreCase)) { seen = true; break; }
+                }
+                if (!seen) names.Add(v);
+            }
+        }
+        if (extra != null)
+        {
+            foreach (string v in extra)
+            {
+                if (string.IsNullOrEmpty(v)) continue;
+                bool seen = false;
+                foreach (string existing in names)
+                {
+                    if (existing.Equals(v, StringComparison.OrdinalIgnoreCase)) { seen = true; break; }
+                }
+                if (!seen) names.Add(v);
+            }
+        }
+        return names.ToArray();
+    }
+
+    // ------------------------------------------------------------------
+    // Path hints -> label. Detection.ResolveLabelFromPath consults this map
+    // instead of keeping a second copy of repo/label mappings.
+    // ------------------------------------------------------------------
+    static readonly Dictionary<string, string> PathHintLabels = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        { "deepseek-ai", "官方 deepseek-ai/deepseek-harness" },
+        { "deepseek_ai", "官方 deepseek-ai/deepseek-harness" },
+        { "dsh-edge-app", "第三方 2633352305/DeepSeekHarness-Desktop" },
+        { "dsh-integration", "第三方 lai-133/dsh-integration" },
+        { "ackow", "第三方 Ackow/dsh-desktop" },
+        { "lburny", "第三方 LBurny/deepseek-harness-desktop" },
+        { "amazingboycrazy", "第三方 AmazingBoyCrazy/dsh_desktop" },
+        { "easyhoov", "第三方 Easyhoov/deepseek-harness-desktop-windows" },
+        { "deepseek-harness-desktop-windows", "第三方 Easyhoov/deepseek-harness-desktop-windows" },
+        { "deepseek-harness-eac", "第三方 zouyuxuan122/Deepseek-Harness-EAC" },
+        { "deepseek harness eac", "第三方 zouyuxuan122/Deepseek-Harness-EAC" },
+        { "steven-kid", "第三方 steven-kid/deepseek-harness-desktop" },
+        { "deepseek harness desktop", "第三方 Easyhoov/deepseek-harness-desktop-windows" },
+        { "dsh-desktop-hub", "第三方 FlashingChen/dsh-desktop-hub" },
+        { "dsh desktop hub", "第三方 FlashingChen/dsh-desktop-hub" },
+        { "dsh-cockpit", "第三方 Lxiayu/DshCockpit" },
+        { "dsh cockpit", "第三方 Lxiayu/DshCockpit" },
+        { "dsh-studio", "第三方 gxcsoccer/dsh-studio" },
+        { "dsh-electron-shell", "第三方 citrusli2026/dsh-electron-shell" },
+        { "dsh-web", "第三方 ding7015869-alt/dsh-web-desktop" },
+        { "dsh web", "第三方 ding7015869-alt/dsh-web-desktop" },
+        { "dsh-client", "第三方 hastings0714/dsh-client" },
+        { "deepseek-harness", "第三方 steven-kid/deepseek-harness-desktop" },
+        { "dsh-desktop", "第三方 myYangyunfan/dsh_desktop" },
+        { "dsh desktop", "第三方 myYangyunfan/dsh_desktop" },
+        { "dsh-desk", "第三方 majiayu000/dsh-desk" },
+        { "dsh desk", "第三方 majiayu000/dsh-desk" }
+    };
+
+    public static string FindLabelByPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return string.Empty;
+        foreach (KeyValuePair<string, string> pair in PathHintLabels)
+        {
+            if (path.IndexOf(pair.Key, StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return pair.Value;
+            }
+        }
+        return string.Empty;
     }
 
     /// <summary>Returns the first profile whose repo token is contained in the given repo string, or null.</summary>
@@ -114,28 +232,94 @@ public static class VariantCatalog
         }
         return null;
     }
+
+    /// <summary>Returns the profile whose process names best match a display name, skipping the official repo.</summary>
+    public static VariantProfile FindByDisplayName(string displayName)
+    {
+        if (string.IsNullOrWhiteSpace(displayName)) return null;
+        string dn = displayName.Trim();
+        foreach (VariantProfile p in Profiles)
+        {
+            if (p.Repo == "deepseek-ai") continue;
+            foreach (string n in p.ProcessNames)
+            {
+                if (dn.Equals(n, StringComparison.OrdinalIgnoreCase)) return p;
+            }
+        }
+        VariantProfile best = null;
+        int bestLen = 0;
+        foreach (VariantProfile p in Profiles)
+        {
+            if (p.Repo == "deepseek-ai") continue;
+            foreach (string n in p.ProcessNames)
+            {
+                if (n.Length > bestLen && dn.IndexOf(n, StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    bestLen = n.Length;
+                    best = p;
+                }
+            }
+        }
+        return best;
+    }
+
+    /// <summary>Returns the profile whose repo token appears in a URL/path string.</summary>
+    public static VariantProfile FindByRepoToken(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        VariantProfile best = null;
+        int bestLen = 0;
+        foreach (VariantProfile p in Profiles)
+        {
+            if (p.Repo.Length > bestLen && text.IndexOf(p.Repo, StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                bestLen = p.Repo.Length;
+                best = p;
+            }
+        }
+        return best;
+    }
 }
 
 /// <summary>Token-based name matching shared by detection and cleanup code.</summary>
 public static class NameMatcher
 {
-    public static readonly string[] RelatedTokens = new string[]
-    {
-        "DSH Desktop", "DSH桌面", "dsh-desktop", "DeepSeek Harness Desktop", "DeepSeek Harness",
-        "deepseek-harness", "DSHDesktop", "dshdesktop", "dsh-edge-app", "DSH-Desktop",
-        "DeepSeek-harness-Desktop", "dsh-desk", "dsh-studio", "dsh-desktop-hub",
-        "dsh-cockpit", "dsh-client", "dsh-web-desktop", "dsh-electron-shell",
-        "Deepseek Harness EAC", "DSH Desktop Hub", "DSH-Web", "DshCockpit", "DSH Desk", "dsh desk"
-    };
+    public static readonly string[] RelatedTokens = BuildRelatedTokens();
+    public static readonly string[] PathTokens = BuildPathTokens();
 
-    public static readonly string[] PathTokens = new string[]
+    static string[] BuildRelatedTokens()
     {
-        "DSH Desktop", "dsh-desktop", "DeepSeek Harness Desktop", "DeepSeek Harness",
-        "deepseek-harness", "DSHDesktop", "dshdesktop", "dsh-edge-app", "DSH-Desktop",
-        "DeepSeek-harness-Desktop", "dsh-desk", "dsh-studio", "dsh-desktop-hub",
-        "dsh-cockpit", "dsh-client", "dsh-web-desktop", "dsh-electron-shell",
-        "Deepseek Harness EAC", "DSH Desktop Hub", "DSH-Web", "DshCockpit", "DSH Desk", "dsh desk", "dsh-runtime"
-    };
+        List<string> tokens = new List<string>();
+        string[][] sources = new string[][] { VariantCatalog.AllProcessNames, VariantCatalog.AllRoamingDirNames, VariantCatalog.AllLocalAppDataDirNames, new string[] { "DSH桌面" } };
+        foreach (string[] source in sources)
+        {
+            foreach (string token in source)
+            {
+                if (string.IsNullOrEmpty(token)) continue;
+                bool seen = false;
+                foreach (string existing in tokens) { if (existing.Equals(token, StringComparison.OrdinalIgnoreCase)) { seen = true; break; } }
+                if (!seen) tokens.Add(token);
+            }
+        }
+        return tokens.ToArray();
+    }
+
+    static string[] BuildPathTokens()
+    {
+        List<string> tokens = new List<string>();
+        string[][] sources = new string[][] { VariantCatalog.AllExeNames, VariantCatalog.AllShortcutNames, VariantCatalog.AllProcessNames, VariantCatalog.AllRoamingDirNames, VariantCatalog.AllLocalAppDataDirNames, new string[] { "dsh-runtime" } };
+        foreach (string[] source in sources)
+        {
+            foreach (string token in source)
+            {
+                if (string.IsNullOrEmpty(token)) continue;
+                bool seen = false;
+                foreach (string existing in tokens) { if (existing.Equals(token, StringComparison.OrdinalIgnoreCase)) { seen = true; break; } }
+                if (!seen) tokens.Add(token);
+            }
+        }
+        return tokens.ToArray();
+    }
 
     public static bool ContainsToken(string value, string[] tokens)
     {

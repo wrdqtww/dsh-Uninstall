@@ -1,4 +1,4 @@
-﻿DSH Desktop 完全卸载程序 - 使用说明
+DSH Desktop 完全卸载程序 - 使用说明
 ========================================
 
 文件目录:
@@ -30,7 +30,7 @@
 
 卸载时会执行:
   1. 结束所有 DSH 相关进程（安装目录内进程 / DSH Desktop.exe / dsh-desktop.exe /
-     DeepSeek Harness Desktop.exe / deepseek-harness.exe / DSHDesktop.exe / dshdesktop.exe / deepseek-harness-desktop.exe / DSH-Desktop.exe / DeepSeek-runtime-Desktop.exe / dsh-desk.exe / dsh-studio.exe / dsh-desktop-hub.exe / dsh-cockpit.exe / dsh-client.exe / dsh-web-desktop.exe / dsh-electron-shell.exe / Deepseek Harness EAC.exe / DSH Desktop Hub.exe / DSH-Web.exe / DshCockpit.exe / DSH Desk.exe）
+     DeepSeek Harness Desktop.exe / deepseek-harness.exe / DSHDesktop.exe / dshdesktop.exe / deepseek-harness-desktop.exe / DSH-Desktop.exe / DeepSeek-harness-Desktop.exe / dsh-desk.exe / dsh-studio.exe / dsh-desktop-hub.exe / dsh-cockpit.exe / dsh-client.exe / dsh-web-desktop.exe / dsh-electron-shell.exe / Deepseek Harness EAC.exe / DSH Desktop Hub.exe / DSH-Web.exe / DshCockpit.exe / DSH Desk.exe / dsh-tauri-app.exe）
    2. 删除所有检测到的 DSH 程序目录（注册表全部命中项 + 常见安装位置全部命中项 + 已知变体目录全部命中项，去重后逐一删除）
   3. 删除 %LOCALAPPDATA% 下已知更新器/程序目录（dsh-desktop-updater、dsh-launcher-updater、dsh-updater 等）
   4. 删除 %APPDATA% 下 DSH Desktop / dsh-desktop / DeepSeek Harness 等缓存/日志/数据
@@ -42,12 +42,12 @@
   10. 清理 %USERPROFILE%\.dsh 用户数据（默认全部删除，包括 .agent-presets、sessions 聊天数据与 skills 技能）
        （skills 技能位于 %USERPROFILE%\.dsh\skills，所有 DSH 桌面端共用同一 DSH_HOME 数据根，无需单独为各变体适配）
   11. 清理 %USERPROFILE%\.dsh-runtime（默认删除；如选择保留则不删）
-  12. 清理 %TEMP%\dsh- 前缀且含 dsh.log / dsh-desktop.log 的临时目录（严格匹配，避免误删第三方 dsh-backup 等）
+   12. 清理 %TEMP%\dsh- 前缀临时目录（只要目录名以 dsh- 开头即删除，避免残留 dsh-spill-*、dsh-subprocess-* 等临时垃圾）
    13. 清理 HKCU/HKLM Run 启动项中指向 DSH 的条目
    14. PATH 清理后广播 WM_SETTINGCHANGE，通知系统环境变量已变更
    15. 结束进程采用 关闭窗口 -> 强制结束 -> taskkill /F /T 三层策略，连同 Electron 子进程树一起结束
    16. 清理 DSH_HOME 环境变量（仅当其值等于检测到的 .dsh 用户数据路径时；不匹配则保留并在日志说明）
-   17. 卸载结束后执行残留扫描，确认安装目录 / 用户数据 / 运行时是否已删除
+   17. 卸载结束后执行扩展残留扫描：安装目录 / 用户数据 / 运行时 / 注册表卸载项 / PATH / 快捷方式 / Run 启动项 / Windows 服务 / 计划任务，输出 [CLEAN] / [RESIDUAL] 表格并统计残留数量；用户数据因保留策略留存时输出 Retained by choice
    18. 所有外部命令（taskkill、cmd）均记录命令行与退出码；每步删除记录成功 / 失败 / 重试 / 跳过原因
 
 可选保留项（默认全部删除）:
@@ -85,9 +85,9 @@
           识别当前正在运行的 DSH（DSH Desktop.exe / dsh-desktop.exe / DeepSeek Harness Desktop.exe 等），
     - /InstallDir=C:\path\to\app  手动指定要卸载的安装目录（仅接受安全路径，根目录/用户目录/Windows 目录会被拒绝）
     - /DryRun（别名 /Preview）  只列出将删除的目标与保留项，不做任何实际删除
-    - /Log=<完整文件路径>      指定日志文件路径（默认见下方说明）
-    - /help（别名 /?）        显示命令行选项说明
-          找到其所在目录并卸载该目录；若当前没有运行中的 DSH，则自动回退到默认卸载。
+      - /Log=<完整文件路径>      指定日志文件路径（默认见下方说明）
+      - /JsonReport=<完整文件路径>  输出结构化 JSON 报告（version/timestamp/exit_code/failure_count/retained/fatal_error/steps[]/residuals[]）
+      - /help（别名 /?）        显示命令行选项说明
     - 默认卸载（/Default）
           当前默认行为：按注册表卸载项、常见安装位置、当前程序目录顺序检测。
 
@@ -125,15 +125,22 @@ Uninstall_DSH_Desktop.exe /S /DetectRunning
   静默模式下若发生清理失败（如文件被占用），退出码为非 0，便于脚本判断卸载是否完整。
 
       运行结束（含报错）后，会在卸载器 exe 所在目录生成 Log.log；日志会记录命令行、日志路径、执行的命令（taskkill/cmd）、每步删除/重试/报错。
-       日志会记录卸载器版本（1.2.1）、管理员状态、变体配置指纹、执行的命令与退出码（taskkill/cmd）、每步删除/重试/报错/跳过原因。
+        日志会记录卸载器版本（1.2.2）、管理员状态、变体配置指纹、执行的命令与退出码（taskkill/cmd）、每步删除/重试/报错/跳过原因；
        卸载完成后会提示建议重启或注销重新登录，以完全刷新 PATH 环境变量。
       如果 exe 所在目录或 /Log= 指定的日志文件会被本次卸载删除（例如 exe 放在安装目录内），
       会在删除前自动把日志副本保存到上一级目录（不可写时保存到桌面），
       并在日志中记录副本路径。也可用 /Log=<完整文件路径> 自行指定日志位置。
-    - 代码审查修复（v1.2.1 内部）：变体识别两阶段兜底；ApplyVariantProfile 重置并返回实际应用状态；步骤编号统一由 Run 输出；DSH_HOME 归一化比较；PATH 条目空值保护；UAC 取消改弹窗提示；npm @deepseek-ai/dsh 目录校验；CleanDshHome 拒绝不安全路径；日志主路径失败降级；VariantProfile.Label 单一数据源；RetentionOptions.Copy 深拷贝；GUI 三组勾选列表共用 WireParentChecked/WireItemCheck 减少重复。
+      - 代码审查修复（v1.2.2）：CleanupTemp 改为删除所有 dsh- 前缀临时目录；PATH 清理输出原始值/移除条目/失败详情；Roaming 跳过时输出 exe/asar/packageJson/userDataMarkers/edgeApp 诊断；残留扫描扩展到注册表/PATH/快捷方式/Run/服务/计划任务；新增 /JsonReport 结构化报告。
+      - 代码审查修复（v1.2.2 第二轮）：静默模式所有弹窗仅写日志不弹窗；保留插件时递归复制依赖包并跳过 junction/reparse point；日志写盘不再 DoEvents（仅 Sleep/Wait 泵消息防卡界面）；JsonEscape 转义全部控制字符；失败记账补齐 TryRemoveEnvVar/服务/计划任务；变体名集合改由 VariantCatalog.Profiles 自动生成（新增变体只加一行 Profile）；lai-133/dsh-integration 与 gxcsoccer/dsh-studio 补入 Profile；标签反查统一走 VariantCatalog.FindLabelByPath；PATH 无 Profile 时只删与安装/运行时/Home 直接相关的条目，裸 dsh 段仅提示；快捷方式删除解析 .lnk 目标并记录；进程清理去掉按名称盲扫 taskkill /IM，改为对实际命中 PID 做 taskkill /F /T；DeleteDirectorySafe 区分访问拒绝（记录后继续）与其他错误（重试）；空 catch 统一写日志（non-fatal error ignored）；DSH_HOME 运行时目录按约定解析并做空值保护；删除注册表旧 GUID 复用 LegacyUninstallRegKey 常量。
+       - 代码审查修复（v1.2.2 第三轮）：插件依赖解析改为正确的 JSON 对象解析（dependencies/peerDependencies/optionalDependencies 只取键名，跳过值）；lai-133/dsh-integration 填入真实 dsh-desktop 名称；全空 Profile 防御性拒绝收窄（保留通用列表）；NameMatcher.RelatedTokens/PathTokens 改由 VariantCatalog 自动生成；注册表标签识别改用 VariantCatalog.FindByDisplayName/FindByRepoToken 派生；DeleteDirectorySafe 遇到 ACL 拒绝文件时记录并返回“部分删除”，不再触发 8 次无效重试。
+       - 代码审查修复（v1.2.2 第四轮）：手写 JSON 解析替换为 System.Web.Extensions 内置 JavaScriptSerializer（构建脚本新增 /r:System.Web.Extensions.dll）；ReadDependencyKeys 直接读取 dependencies/peerDependencies/optionalDependencies 键名；FindByAppId 优先级提前到 DisplayName 之前（仅 EAC 共用 appId 时特判）；临时 CSV 清理失败写入日志；GUI 进度/日志控件跨线程调用加 InvokeRequired 守卫。
+       - 代码审查修复（v1.2.2 第五轮）：ResolveDshRuntime 增加权威来源（DSH_HOME 父目录、用户目录、安装目录内 .dsh-runtime 三级）；GetPresetDisplayName 改为严格顶层 YAML 标量解析器 ParseTopLevelScalar；AddPluginIfDsh 判定改为顶层 dsh 键/包名命名约定；PumpUi 空 catch 写日志；新增本地 build-uninstaller.ps1、tests\run-smoke.ps1、.github\workflows\build.yml（CI 编译+冒烟+上传产物）。
+       - 代码审查修复（v1.2.2 第六轮）：运行识别（/DetectRunning、程序识别卸载）不再受变体收窄影响，始终使用全量变体名单（AllExeNames/AllProcessNames）；新增 wscript.exe 命令行识别（2633352305 边缘版 launcher.vbs -> %LOCALAPPDATA%\dsh-edge-app）；新增 GetProcessCommandLine WMI 查询。
 
 
 注意:
   - 卸载会删除 DSH / DeepSeek Harness 桌面端产生的用户数据/会话记录；请提前备份需要的内容。
   - 旧的 0.3.9 安装包固定保留 agent-sc / agent-sc-v 与 .dsh-runtime，
     新版本已改为可选保留项，不再强制保留。
+       - 代码审查修复（v1.2.2 第七轮）：适配新版 Tauri 桌面端 —— myYangyunfan/dsh_desktop 新版进程/exe 为 dsh-tauri-app.exe（productName 仍为 DSH Desktop，appId 仍为 com.deepseek.dsh.desktop）；majiayu000/dsh-desk 新版 Cargo 二进制为 dsh-desk.exe；LBurny 新版 Cargo 二进制为 dshdesktop.exe（已覆盖）；hastings0714 新版 productName 为 DeepSeek Harness Client、二进制 dsh-client.exe（已覆盖）。
+       - 仓库扫描时间 2026-08-21：重新核对 18 个第三方/官方仓库最新 main/master 的 package.json / electron-builder.yml / tauri.conf.json / Cargo.toml，新旧 exe 名均已并入全量名单。

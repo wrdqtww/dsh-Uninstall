@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Text;
 using System.Linq;
 using System.Reflection;
 using System.Security.Principal;
@@ -9,6 +10,7 @@ using System.Threading;
 using System.Drawing;
 using System.Windows.Forms;
 using Microsoft.Win32;
+using System.Runtime.InteropServices;
 
 partial class DSHDesktopUninstaller
 {
@@ -38,141 +40,18 @@ partial class DSHDesktopUninstaller
     // Multi-variant support: official DSH Desktop, collection/integrated
     // builds (DeepSeek Harness Desktop, dsh-desktop), and lite/simple
     // variants (deepseek-harness, dsh-edge-app, DSHDesktop, dshdesktop).
-    static readonly string[] AllExeNames = new string[]
-    {
-        "DSH Desktop.exe",
-        "dsh-desktop.exe",
-        "DeepSeek Harness Desktop.exe",
-        "DeepSeek Harness.exe",
-        "deepseek-harness.exe",
-        "DSHDesktop.exe",
-        "dshdesktop.exe",
-        "deepseek-harness-desktop.exe",
-        "DSH-Desktop.exe",
-        "DeepSeek-harness-Desktop.exe",
-        "dsh-desk.exe",
-        "dsh-studio.exe",
-        "dsh-desktop-hub.exe",
-        "dsh-cockpit.exe",
-        "dsh-client.exe",
-        "dsh-web-desktop.exe",
-        "dsh-electron-shell.exe",
-        "Deepseek Harness EAC.exe",
-        "DSH Desktop Hub.exe",
-        "DSH-Web.exe",
-        "DshCockpit.exe",
-        "DSH Desk.exe"
-    };
-    static readonly string[] AllProcessNames = new string[]
-    {
-        "DSH Desktop",
-        "dsh-desktop",
-        "DeepSeek Harness Desktop",
-        "DeepSeek Harness",
-        "deepseek-harness",
-        "DSHDesktop",
-        "dshdesktop",
-        "deepseek-harness-desktop",
-        "DSH-Desktop",
-        "DeepSeek-harness-Desktop",
-        "dsh-desk",
-        "dsh-studio",
-        "dsh-desktop-hub",
-        "dsh-cockpit",
-        "dsh-client",
-        "dsh-web-desktop",
-        "dsh-electron-shell",
-        "Deepseek Harness EAC",
-        "DSH Desktop Hub",
-        "DSH-Web",
-        "DshCockpit",
-        "DSH Desk"
-    };
-    static readonly string[] AllShortcutNames = new string[]
-    {
-        "DSH Desktop.lnk",
-        "dsh-desktop.lnk",
-        "DeepSeek Harness Desktop.lnk",
-        "DeepSeek Harness.lnk",
-        "DSHDesktop.lnk",
-        "dshdesktop.lnk",
-        "deepseek-harness.lnk",
-        "deepseek-harness-desktop.lnk",
-        "DSH-Desktop.lnk",
-        "DeepSeek-harness-Desktop.lnk",
-        "dsh-desk.lnk",
-        "dsh-studio.lnk",
-        "dsh-desktop-hub.lnk",
-        "dsh-cockpit.lnk",
-        "dsh-client.lnk",
-        "dsh-web-desktop.lnk",
-        "dsh-electron-shell.lnk",
-        "Deepseek Harness EAC.lnk",
-        "DSH Desktop Hub.lnk",
-        "DSH-Web.lnk",
-        "DshCockpit.lnk",
-        "DSH Desk.lnk"
-    };
+    // All-variant name lists are generated from VariantCatalog.Profiles so a
+    // new variant is added in exactly one place (DSH_Desktop_Uninstaller.Core.cs).
+    static string[] AllExeNames { get { return VariantCatalog.AllExeNames; } }
+    static string[] AllProcessNames { get { return VariantCatalog.AllProcessNames; } }
+    static string[] AllShortcutNames { get { return VariantCatalog.AllShortcutNames; } }
+    static string[] AllRoamingDirNames { get { return VariantCatalog.AllRoamingDirNames; } }
+    static string[] AllLocalAppDataDirNames { get { return VariantCatalog.AllLocalAppDataDirNames; } }
     static readonly string[] AllUpdaterDirNames = new string[]
     {
         "dsh-desktop-updater",
         "dsh-launcher-updater",
         "dsh-updater"
-    };
-    static readonly string[] AllRoamingDirNames = new string[]
-    {
-        "DSH Desktop",
-        "dsh-desktop",
-        "DeepSeek Harness Desktop",
-        "DeepSeek Harness",
-        "DSHDesktop",
-        "dshdesktop",
-        "deepseek-harness",
-        "deepseek-harness-desktop",
-        "DSH-Desktop",
-        "DeepSeek-harness-Desktop",
-        "dsh-desk",
-        "dsh-studio",
-        "dsh-desktop-hub",
-        "dsh-cockpit",
-        "dsh-client",
-        "dsh-web-desktop",
-        "dsh-electron-shell",
-        "Deepseek Harness EAC",
-        "DSH Desktop Hub",
-        "DSH-Web",
-        "DshCockpit",
-        "DSH Desk",
-        "dsh",
-        ".dsh"
-    };
-    static readonly string[] AllLocalAppDataDirNames = new string[]
-    {
-        "DSH Desktop",
-        "dsh-desktop",
-        "DeepSeek Harness Desktop",
-        "DeepSeek Harness",
-        "DSHDesktop",
-        "dshdesktop",
-        "dsh-edge-app",
-        "deepseek-harness",
-        "deepseek-harness-desktop",
-        "DSH-Desktop",
-        "DeepSeek-harness-Desktop",
-        "dsh-desk",
-        "dsh-studio",
-        "dsh-desktop-hub",
-        "dsh-cockpit",
-        "dsh-client",
-        "dsh-web-desktop",
-        "dsh-electron-shell",
-        "Deepseek Harness EAC",
-        "DSH Desktop Hub",
-        "DSH-Web",
-        "DshCockpit",
-        "DSH Desk",
-        "dsh",
-        ".dsh"
     };
 
     // When a specific variant repo is recognized, these override the broad
@@ -212,20 +91,32 @@ partial class DSHDesktopUninstaller
     {
         try
         {
-            string fullHome = Path.GetFullPath(DshHome);
-            string parent = Path.GetDirectoryName(fullHome);
+            string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            string defaultRuntime = Path.Combine(userProfile, ".dsh-runtime");
 
-            // DshHome may be a drive root (e.g. "C:\"), where GetDirectoryName
-            // returns null; fall back to the user profile so Combine is safe.
-            if (string.IsNullOrEmpty(parent) || parent == fullHome)
+            // Authoritative sources, in priority order:
+            // 1) DSH_HOME's parent (the CLI writes .dsh-runtime next to a custom
+            //    data root); 2) the current user's profile; 3) an install dir's
+            //    own .dsh-runtime subdirectory (checked in InitializeRuntime
+            //    once the install dirs are known).
+            string envHome = Environment.GetEnvironmentVariable("DSH_HOME");
+            if (!string.IsNullOrWhiteSpace(envHome))
             {
-                parent = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                string fullHome = Path.GetFullPath(envHome.Trim().TrimEnd('\\'));
+                string parent = Path.GetDirectoryName(fullHome);
+                if (!string.IsNullOrEmpty(parent) && parent != fullHome)
+                {
+                    string envRuntime = Path.Combine(parent, ".dsh-runtime");
+                    if (Directory.Exists(envRuntime)) return envRuntime;
+                }
             }
 
-            return Path.Combine(parent, ".dsh-runtime");
+            if (Directory.Exists(defaultRuntime)) return defaultRuntime;
+            return defaultRuntime;
         }
-        catch
+        catch (Exception)
         {
+            Log("  Warning: non-fatal error ignored.");
             return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dsh-runtime");
         }
     }
@@ -248,15 +139,17 @@ partial class DSHDesktopUninstaller
                 return Path.Combine(exeDir, "Log.log");
             }
         }
-        catch
+        catch (Exception)
         {
+                Log("  Warning: non-fatal error ignored.");
         }
         try
         {
             return Path.Combine(Directory.GetCurrentDirectory(), "Log.log");
         }
-        catch
+        catch (Exception)
         {
+                Log("  Warning: non-fatal error ignored.");
             return "Log.log";
         }
     }
@@ -287,6 +180,11 @@ partial class DSHDesktopUninstaller
             if (string.IsNullOrEmpty(repo)) return false;
 
             VariantProfile p = VariantCatalog.Find(repo);
+            if (p != null && IsEmptyProfile(p))
+            {
+                Log("Empty profile (label-only) for " + repo + "; keeping generic cleanup lists.");
+                return false;
+            }
             if (p != null)
             {
                 variantExeNames = p.ExeNames;
@@ -308,6 +206,18 @@ partial class DSHDesktopUninstaller
             return false;
         }
     }
+    static bool IsEmptyProfile(VariantProfile p)
+    {
+        return (p.ExeNames == null || p.ExeNames.Length == 0)
+            && (p.ProcessNames == null || p.ProcessNames.Length == 0)
+            && (p.ShortcutNames == null || p.ShortcutNames.Length == 0)
+            && (p.UpdaterDirNames == null || p.UpdaterDirNames.Length == 0)
+            && (p.RoamingDirNames == null || p.RoamingDirNames.Length == 0)
+            && (p.LocalAppDataDirNames == null || p.LocalAppDataDirNames.Length == 0)
+            && (p.AppIds == null || p.AppIds.Length == 0)
+            && (p.InstallDirNames == null || p.InstallDirNames.Length == 0);
+    }
+
     static string ExtractRepoFromLabel(string label)
     {
         if (string.IsNullOrWhiteSpace(label)) return string.Empty;
@@ -359,6 +269,11 @@ partial class DSHDesktopUninstaller
     // Counts cleanup failures so /S (silent) mode can return a non-zero exit
     // code that scripts can check.
     static int failureCount = 0;
+
+    // Optional structured report for /S automation and audits.
+    static string jsonReportPath = string.Empty;
+    static List<string> reportSteps = new List<string>();
+    static List<string> residualItems = new List<string>();
 
     // Version shown in the log so a support report can reproduce behavior.
     static readonly string UninstallerVersion = "1.2.2";
@@ -519,8 +434,9 @@ partial class DSHDesktopUninstaller
             Log("Scheduling temp cleanup command: cmd.exe " + cmd);
             RunCommandAndLog("cmd.exe", cmd, 15000);
         }
-        catch
+        catch (Exception)
         {
+                Log("  Warning: non-fatal error ignored.");
         }
     }
 
@@ -544,6 +460,17 @@ partial class DSHDesktopUninstaller
         // profile matched), resolve the install directory.
         DshInstallDirs = SafeResolveDshInstallDirs();
         DshInstallDir = DshInstallDirs.Count > 0 ? DshInstallDirs[0] : string.Empty;
+
+        // Stage 2b: if the profile .dsh-runtime does not exist yet, prefer an
+        // install dir that carries its own .dsh-runtime subdirectory.
+        if (!Directory.Exists(DshRuntime))
+        {
+            foreach (string dir in DshInstallDirs)
+            {
+                string local = Path.Combine(dir, ".dsh-runtime");
+                if (Directory.Exists(local)) { DshRuntime = local; break; }
+            }
+        }
 
         // Stage 3: if stage 1 could not identify a variant but an install dir
         // was found, derive the label from that dir and re-apply once.
@@ -606,8 +533,8 @@ partial class DSHDesktopUninstaller
             }
             catch (Exception ex)
             {
-                MessageBox.Show("\u9700\u8981\u7ba1\u7406\u5458\u6743\u9650\uff0c\u8bf7\u53f3\u952e\u4ee5\u7ba1\u7406\u5458\u8eab\u4efd\u8fd0\u884c\u3002" + Environment.NewLine + Environment.NewLine + ex.Message,
-                    "DSH \u684c\u9762\u7aef\u5378\u8f7d\u5668", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    ShowMessage("\u9700\u8981\u7ba1\u7406\u5458\u6743\u9650\uff0c\u8bf7\u53f3\u952e\u4ee5\u7ba1\u7406\u5458\u8eab\u4efd\u8fd0\u884c\u3002" + Environment.NewLine + Environment.NewLine + ex.Message,
+                        "DSH \u684c\u9762\u7aef\u5378\u8f7d\u5668", MessageBoxIcon.Warning);
                 return 1;
             }
         }
@@ -690,32 +617,50 @@ partial class DSHDesktopUninstaller
 
             // For interactive mode the confirmation window has already
             // switched to the progress view and is stored in progressForm.
+            // Run() executes on a worker thread while the main thread pumps
+            // window messages, so the progress UI stays responsive and no
+            // destructive step is ever interrupted by DoEvents reentrancy.
+            Exception runError = null;
+            Thread worker = new Thread(delegate()
+            {
+                try { Run(); }
+                catch (Exception ex) { runError = ex; }
+            });
+            worker.SetApartmentState(ApartmentState.STA);
+            worker.Start();
+            while (!worker.Join(100))
+            {
+                Application.DoEvents();
+            }
+
             try
             {
-                Run();
+                if (progressForm != null)
+                {
+                    progressForm.AllowClose = true;
+                    progressForm.Close();
+                    progressForm.Dispose();
+                }
             }
-            finally
+            catch (Exception)
             {
-                try
-                {
-                    if (progressForm != null)
-                    {
-                        progressForm.Close();
-                        progressForm.Dispose();
-                    }
-                }
-                catch
-                {
-                }
-                progressForm = null;
+                Log("  Warning: non-fatal error ignored.");
             }
+            progressForm = null;
+
+            if (runError != null)
+            {
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(runError).Throw();
+            }
+
             Log("===== Uninstaller exit =====");
-            ScheduleSelfTempDeletion();
+            WriteJsonReport((silent && failureCount > 0) ? 1 : 0, string.Empty);
         }
         catch (Exception ex)
         {
             Log("ERROR: " + ex);
-            MessageBox.Show("\u5378\u8f7d\u8fc7\u7a0b\u53d1\u751f\u9519\u8bef\uff1a\r\n" + ex.Message + "\r\n\r\n\u65e5\u5fd7\uff1a\r\n" + LogService.MainPath, "DSH \u684c\u9762\u7aef\u5378\u8f7d\u5668", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            WriteJsonReport(1, ex.Message);
+            ShowMessage("\u5378\u8f7d\u8fc7\u7a0b\u53d1\u751f\u9519\u8bef\uff1a\r\n" + ex.Message + "\r\n\r\n\u65e5\u5fd7\uff1a\r\n" + LogService.MainPath, "DSH \u684c\u9762\u7aef\u5378\u8f7d\u5668", MessageBoxIcon.Error);
             ScheduleSelfTempDeletion();
             Pause();
             return 1;
@@ -729,6 +674,17 @@ partial class DSHDesktopUninstaller
         return (silent && failureCount > 0) ? 1 : 0;
     }
 
+    // All user-facing message boxes go through this helper so silent mode
+    // never blocks on a modal dialog: it only logs and relies on exit codes.
+    static void ShowMessage(string text, string caption, System.Windows.Forms.MessageBoxIcon icon)
+    {
+        if (silent)
+        {
+            Log("UI message suppressed in silent mode [" + caption + "]: " + text);
+            return;
+        }
+        MessageBox.Show(text, caption, MessageBoxButtons.OK, icon);
+    }
     static void ParseArgs(string[] args)
     {
         List<ArgSpec> specs = BuildArgSpecs();
@@ -773,6 +729,7 @@ partial class DSHDesktopUninstaller
             new ArgSpec(new[] { "/Default", "-Default" }, v => { useDetectedRunningDsh = false; }),
             new ArgSpec(new[] { "/InstallDir", "-InstallDir", "/Dir", "-Dir" }, v => { manualInstallDir = (v ?? string.Empty).Trim().Trim('"').TrimEnd('\\'); }),
             new ArgSpec(new[] { "/Log", "-Log", "/LogFile", "-LogFile" }, v => { if (!string.IsNullOrWhiteSpace(v)) logOverridePath = v.Trim().Trim('"'); }),
+            new ArgSpec(new[] { "/JsonReport", "-JsonReport" }, v => { if (!string.IsNullOrWhiteSpace(v)) jsonReportPath = v.Trim().Trim('"'); }),
             new ArgSpec(new[] { "/DryRun", "-DryRun", "/Preview", "-Preview" }, v => { dryRun = true; }),
             new ArgSpec(new[] { "/help", "-help", "/?", "-?", "-h" }, v => { helpRequested = true; }),
         };
@@ -792,6 +749,7 @@ partial class DSHDesktopUninstaller
         Console.WriteLine("    /Default               使用默认检测（注册表/常见路径）");
         Console.WriteLine("    /InstallDir=<路径>     手动指定安装目录");
         Console.WriteLine("    /Log=<路径>           指定日志文件路径（默认 exe 同目录 Log.log）");
+        Console.WriteLine("    /JsonReport=<路径>    输出结构化 JSON 报告（步骤/残留/失败计数）");
         Console.WriteLine("    /DryRun                只检测并列出将删除/保留的内容，不实际删除");
         Console.WriteLine("    /help 或 /?            显示本帮助");
         Console.WriteLine();
@@ -853,34 +811,40 @@ partial class DSHDesktopUninstaller
             }
             return false;
         }
-        catch
+        catch (Exception)
         {
+                Log("  Warning: non-fatal error ignored.");
             return false;
         }
     }
 
-    static bool IsSafeInstallDir(string dir)
+    static bool IsUnsafeRootPath(string path)
     {
+        if (string.IsNullOrWhiteSpace(path)) return true;
         try
         {
-            string full = Path.GetFullPath(dir);
+            string full = Path.GetFullPath(path.Trim());
             string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             string windowsDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
             string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
             string programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
             string root = Path.GetPathRoot(full);
-
-            return !string.IsNullOrEmpty(full) &&
-                   !full.Equals(root, StringComparison.OrdinalIgnoreCase) &&
-                   !full.Equals(userProfile, StringComparison.OrdinalIgnoreCase) &&
-                   !full.Equals(windowsDir, StringComparison.OrdinalIgnoreCase) &&
-                   !full.Equals(programFiles, StringComparison.OrdinalIgnoreCase) &&
-                   !full.Equals(programFilesX86, StringComparison.OrdinalIgnoreCase);
+            return full.Equals(root, StringComparison.OrdinalIgnoreCase)
+                || full.Equals(userProfile, StringComparison.OrdinalIgnoreCase)
+                || full.Equals(windowsDir, StringComparison.OrdinalIgnoreCase)
+                || full.Equals(programFiles, StringComparison.OrdinalIgnoreCase)
+                || full.Equals(programFilesX86, StringComparison.OrdinalIgnoreCase);
         }
-        catch
+        catch (Exception)
         {
-            return false;
+            Log("  Warning: non-fatal error ignored.");
+            return true;
         }
+    }
+
+    static bool IsSafeInstallDir(string dir)
+    {
+        return !string.IsNullOrWhiteSpace(dir) && !IsUnsafeRootPath(dir);
     }
 
     // If Log.log lives inside a directory that Run() will delete, create a
@@ -926,8 +890,9 @@ partial class DSHDesktopUninstaller
                 Log("Log copy preserved at: " + copyPath);
             }
         }
-        catch
+        catch (Exception)
         {
+                Log("  Warning: non-fatal error ignored.");
             // Desktop fallback: keep the log even if the parent directory is
             // not writable (e.g. exe sits directly under a drive root).
             try
@@ -944,8 +909,9 @@ partial class DSHDesktopUninstaller
                     }
                 }
             }
-            catch
+            catch (Exception)
             {
+                Log("  Warning: non-fatal error ignored.");
             }
         }
     }
@@ -969,8 +935,9 @@ partial class DSHDesktopUninstaller
                 candidate = parent;
             }
         }
-        catch
+        catch (Exception)
         {
+                Log("  Warning: non-fatal error ignored.");
         }
         return Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
     }
@@ -994,8 +961,9 @@ partial class DSHDesktopUninstaller
                 return;
             }
         }
-        catch
+        catch (Exception)
         {
+                Log("  Warning: non-fatal error ignored.");
         }
     }
 
@@ -1011,8 +979,9 @@ partial class DSHDesktopUninstaller
                 if (full.StartsWith(dfull, StringComparison.OrdinalIgnoreCase)) return true;
             }
         }
-        catch
+        catch (Exception)
         {
+                Log("  Warning: non-fatal error ignored.");
         }
         return false;
     }
@@ -1084,15 +1053,20 @@ partial class DSHDesktopUninstaller
         }
         Log("");
 
+          UpdateProgress(0);
         PreserveLogCopyIfNeeded();
+        reportSteps.Clear();
+        residualItems.Clear();
         KillDSHProcesses();
-        Log("[2/9] Deleting install directories...");
+          UpdateProgress(11);
+        AddStep("[2/9] Deleting install directories...");
         foreach (string dir in DshInstallDirs)
         {
             if (string.IsNullOrEmpty(dir)) continue;
             DeleteDirectoryWithRetry(dir);
         }
-        Log("[3/9] Deleting known extra directories...");
+          UpdateProgress(22);
+        AddStep("[3/9] Deleting known extra directories...");
         foreach (string dir in GetKnownExtraDirectories())
         {
             if (string.IsNullOrEmpty(dir)) continue;
@@ -1107,26 +1081,33 @@ partial class DSHDesktopUninstaller
                 DeleteDirectoryWithRetry(dir);
             }
         }
-        Log("[4/9] Deleting DSH shortcuts...");
+          UpdateProgress(33);
+        AddStep("[4/9] Deleting DSH shortcuts...");
         DeleteKnownDshShortcuts();
         DeleteRegistryKeys();
         CleanupRunKeys();
-        Log("[5/9] Cleaning PATH entries...");
+          UpdateProgress(44);
+        AddStep("[5/9] Cleaning PATH entries...");
         CleanupMachinePath();
         CleanupUserPath();
         BroadcastEnvironmentChange();
-        Log("[6/9] Preserving selected plugins...");
+          UpdateProgress(55);
+        AddStep("[6/9] Preserving selected plugins...");
         PreserveSelectedPlugins();
-        Log("[7/9] Cleaning DSH user data...");
+          UpdateProgress(66);
+        AddStep("[7/9] Cleaning DSH user data...");
         CleanDshHome();
-        Log("[8/9] Cleaning runtime...");
+          UpdateProgress(77);
+        AddStep("[8/9] Cleaning runtime...");
         if (!keepRuntime)
         {
             DeleteDirectoryWithRetry(DshRuntime);
         }
-        Log("[9/9] Cleaning temp files and scanning residuals...");
+          UpdateProgress(88);
+        AddStep("[9/9] Cleaning temp files and scanning residuals...");
         CleanupTemp();
-        RunResidualScan();
+            residualItems = RunResidualScan();
+          UpdateProgress(100);
 
         Log("");
         Log("===== Uninstall finished =====");
@@ -1137,27 +1118,157 @@ partial class DSHDesktopUninstaller
 
 
 
-    static void RunResidualScan()
+    static List<string> RunResidualScan()
     {
+        List<string> residual = new List<string>();
         Log("  Residual scan:");
+
         if (DshInstallDirs.Count == 0)
         {
-            Log("    Install dir: not applicable (not detected)");
+            Log("    [INFO] Install dir: not applicable (not detected)");
         }
         foreach (string dir in DshInstallDirs)
         {
-            Log("    Install dir: " + ResidualStatus(dir));
+            if (Directory.Exists(dir))
+            {
+                residual.Add("Install dir: " + dir);
+                Log("    [RESIDUAL] Install dir: " + dir);
+            }
+            else
+            {
+                Log("    [CLEAN] Install dir: confirmed removed -> " + dir);
+            }
         }
-        Log("    User data:   " + ResidualStatus(DshHome));
-        Log("    Runtime:     " + ResidualStatus(DshRuntime));
+
+        bool userDataKept = keepAgentPresets || keepChatData || keepSkills || keepAppSettings || keepModelConfig || keepOtherUserData;
+        if (userDataKept)
+        {
+            if (Directory.Exists(DshHome))
+            {
+                Log("    [INFO] User data: Retained by choice -> " + DshHome + " (\u4fdd\u7559\u5185\u5bb9\u5df2\u4fdd\u7559\uff0c\u76ee\u5f55\u672a\u5220\u9664)");
+            }
+            else
+            {
+                Log("    [CLEAN] User data: " + DshHome + " (kept by choice but path absent)");
+            }
+        }
+        else
+        {
+            if (Directory.Exists(DshHome))
+            {
+                residual.Add("User data: " + DshHome);
+                Log("    [RESIDUAL] User data: " + DshHome);
+            }
+            else
+            {
+                Log("    [CLEAN] User data: confirmed removed -> " + DshHome);
+            }
+        }
+
+        if (keepRuntime)
+        {
+            if (Directory.Exists(DshRuntime))
+            {
+                Log("    [INFO] Runtime: Retained by choice -> " + DshRuntime + " (\u4fdd\u7559\u5185\u5bb9\u5df2\u4fdd\u7559\uff0c\u76ee\u5f55\u672a\u5220\u9664)");
+            }
+            else
+            {
+                Log("    [CLEAN] Runtime: " + DshRuntime + " (kept by choice but path absent)");
+            }
+        }
+        else
+        {
+            if (Directory.Exists(DshRuntime))
+            {
+                residual.Add("Runtime: " + DshRuntime);
+                Log("    [RESIDUAL] Runtime: " + DshRuntime);
+            }
+            else
+            {
+                Log("    [CLEAN] Runtime: confirmed removed -> " + DshRuntime);
+            }
+        }
+
+        List<string> cleanupResiduals = CollectCleanupResiduals();
+        if (cleanupResiduals.Count == 0)
+        {
+            Log("    [CLEAN] Registry/PATH/startup/services/tasks: no residuals found");
+        }
+        else
+        {
+            foreach (string item in cleanupResiduals)
+            {
+                residual.Add(item);
+                Log("    [RESIDUAL] " + item);
+            }
+        }
+
+        Log("  Residual count: " + residual.Count);
+        return residual;
     }
 
-    static string ResidualStatus(string path)
+    static void AddStep(string step)
     {
-        if (string.IsNullOrEmpty(path)) return "not applicable (not detected)";
-        return Directory.Exists(path) ? "RESIDUAL still exists -> " + path : "confirmed removed (" + path + ")";
+        reportSteps.Add(step);
+        Log(step);
     }
 
+    static void WriteJsonReport(int exitCode, string fatalError)
+    {
+        if (string.IsNullOrEmpty(jsonReportPath)) return;
+        try
+        {
+            string fullPath = Path.GetFullPath(jsonReportPath);
+            string dir = Path.GetDirectoryName(fullPath);
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine("{");
+            sb.AppendLine("  \"version\": \"" + JsonEscape(UninstallerVersion) + "\",");
+            sb.AppendLine("  \"timestamp\": \"" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "\",");
+            sb.AppendLine("  \"exit_code\": " + exitCode + ",");
+            sb.AppendLine("  \"failure_count\": " + failureCount + ",");
+            sb.AppendLine("  \"retained\": \"" + JsonEscape(RetentionSummary()) + "\",");
+            sb.AppendLine("  \"fatal_error\": \"" + JsonEscape(fatalError) + "\",");
+            sb.AppendLine("  \"steps\": [");
+            for (int i = 0; i < reportSteps.Count; i++)
+            {
+                string comma = (i == reportSteps.Count - 1) ? "" : ",";
+                sb.AppendLine("    \"" + JsonEscape(reportSteps[i]) + "\"" + comma);
+            }
+            sb.AppendLine("  ],");
+            sb.AppendLine("  \"residuals\": [");
+            for (int i = 0; i < residualItems.Count; i++)
+            {
+                string comma = (i == residualItems.Count - 1) ? "" : ",";
+                sb.AppendLine("    \"" + JsonEscape(residualItems[i]) + "\"" + comma);
+            }
+            sb.AppendLine("  ]");
+            sb.AppendLine("}");
+            File.WriteAllText(fullPath, sb.ToString());
+            Log("JSON report written: " + fullPath);
+        }
+        catch (Exception ex)
+        {
+            Log("Failed to write JSON report: " + ex.Message);
+        }
+    }
+
+    static string JsonEscape(string s)
+    {
+        if (s == null) return "";
+        StringBuilder sb = new StringBuilder();
+        foreach (char c in s)
+        {
+            if (c == '\\') sb.Append("\\\\");
+            else if (c == '"') sb.Append("\\\"");
+            else if (c == '\r') sb.Append("\\r");
+            else if (c == '\n') sb.Append("\\n");
+            else if (c == '\t') sb.Append("\\t");
+            else if (c < 0x20) sb.Append("\\u").Append(((int)c).ToString("x4"));
+            else sb.Append(c);
+        }
+        return sb.ToString();
+    }
     static IEnumerable<string> GetKnownExtraDirectories()
     {
         List<string> dirs = new List<string>();
@@ -1215,10 +1326,37 @@ partial class DSHDesktopUninstaller
         }
         else
         {
-            Log("  Skipping non-DSH directory: " + dir);
+            Log("  Skipping non-DSH directory: " + dir + " (" + DiagnoseDshDirectory(dir) + ")");
         }
     }
 
+    // Human-readable reason why a candidate directory was rejected, so a
+    // user reviewing the log can see exactly which checks failed.
+    static string DiagnoseDshDirectory(string dir)
+    {
+        try
+        {
+            bool exe = HasDshExecutable(dir);
+            bool asar = File.Exists(Path.Combine(dir, "resources", "app.asar"));
+            bool appDir = Directory.Exists(Path.Combine(dir, "resources", "app"));
+            bool pkgJson = false;
+            string pkgFile = Path.Combine(dir, "package.json");
+            if (File.Exists(pkgFile))
+            {
+                string json = File.ReadAllText(pkgFile);
+                pkgJson = json.IndexOf("dsh", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                          json.IndexOf("deepseek", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                          json.IndexOf("electron", StringComparison.OrdinalIgnoreCase) >= 0;
+            }
+            int markers = CountUserDataMarkers(dir);
+            bool edge = IsLikelyDshEdgeAppDirectory(dir);
+            return "exe=" + exe + ", asar=" + asar + ", appDir=" + appDir + ", packageJson=" + pkgJson + ", userDataMarkers=" + markers + ", edgeApp=" + edge;
+        }
+        catch (Exception ex)
+        {
+            return "diagnose error: " + ex.Message;
+        }
+    }
     static bool IsLikelyDshDirectory(string dir)
     {
         try
@@ -1238,8 +1376,9 @@ partial class DSHDesktopUninstaller
                 }
             }
         }
-        catch
+        catch (Exception)
         {
+                Log("  Warning: non-fatal error ignored.");
         }
         return false;
     }
@@ -1254,37 +1393,47 @@ partial class DSHDesktopUninstaller
         try
         {
             if (IsLikelyDshDirectory(dir)) return true;
-            string[] markers = new string[]
-            {
-                "Local State", "Preferences", "Network", "Cache", "Code Cache",
-                "GPUCache", "Local Storage", "Session Storage", "logs", "settings.json",
-                "lockfile", "DIPS", "SharedStorage", "EBWebView", "config.json"
-            };
-            int hits = 0;
-            foreach (string m in markers)
-            {
-                string full = Path.Combine(dir, m);
-                if (File.Exists(full) || Directory.Exists(full))
-                {
-                    hits++;
-                    if (hits >= 2) return true;
-                }
-            }
-            try
-            {
-                if (Directory.GetFiles(dir, "*.db").Length > 0) hits++;
-            }
-            catch
-            {
-            }
-            return hits >= 2;
+            return CountUserDataMarkers(dir) >= 2;
         }
-        catch
+        catch (Exception)
         {
+                Log("  Warning: non-fatal error ignored.");
         }
         return false;
     }
 
+    // Count the standard Electron/Chromium userData markers. Requiring at
+    // least two markers avoids deleting an unrelated folder that merely has
+    // a single Preferences or config.json file.
+    static int CountUserDataMarkers(string dir)
+    {
+        int hits = 0;
+        string[] markers = new string[]
+        {
+            "Local State", "Preferences", "Network", "Cache", "Code Cache",
+            "GPUCache", "Local Storage", "Session Storage", "logs", "settings.json",
+            "lockfile", "DIPS", "SharedStorage", "EBWebView", "config.json",
+            "window-state.json", "single-instance.lock", "profile-patch-heal-cache.json"
+        };
+        foreach (string m in markers)
+        {
+            string full = Path.Combine(dir, m);
+            if (File.Exists(full) || Directory.Exists(full))
+            {
+                hits += (m == "EBWebView") ? 2 : 1;
+                if (hits >= 2) return hits;
+            }
+        }
+        try
+        {
+            if (Directory.GetFiles(dir, "*.db").Length > 0) hits++;
+        }
+        catch (Exception)
+        {
+                Log("  Warning: non-fatal error ignored.");
+        }
+        return hits;
+    }
     // The edge-shortcut variant (2633352305/DeepSeekHarness-Desktop) installs
     // only launcher.vbs + icon + install script into %LOCALAPPDATA%\dsh-edge-app.
     static bool IsLikelyDshEdgeAppDirectory(string dir)
@@ -1297,8 +1446,9 @@ partial class DSHDesktopUninstaller
                    File.Exists(Path.Combine(dir, "install.ps1")) ||
                    File.Exists(Path.Combine(dir, "deepseek.ico"));
         }
-        catch
+        catch (Exception)
         {
+                Log("  Warning: non-fatal error ignored.");
         }
         return false;
     }
@@ -1316,9 +1466,55 @@ partial class DSHDesktopUninstaller
                 || (json.IndexOf("\"dsh\"", StringComparison.OrdinalIgnoreCase) >= 0
                     && json.IndexOf("\"name\"", StringComparison.OrdinalIgnoreCase) >= 0);
         }
-        catch
+        catch (Exception)
         {
+                Log("  Warning: non-fatal error ignored.");
         }
+        return false;
+    }
+
+    static string ResolveShortcutTarget(string lnkPath)
+    {
+        try
+        {
+            Type shellType = Type.GetTypeFromProgID("WScript.Shell");
+            if (shellType == null) return string.Empty;
+            object shell = Activator.CreateInstance(shellType);
+            try
+            {
+                object shortcut = shellType.InvokeMember("CreateShortcut", BindingFlags.InvokeMethod, null, shell, new object[] { lnkPath });
+                try
+                {
+                    object target = shortcut.GetType().InvokeMember("TargetPath", BindingFlags.GetProperty, null, shortcut, null);
+                    object arguments = shortcut.GetType().InvokeMember("Arguments", BindingFlags.GetProperty, null, shortcut, null);
+                    string targetPath = target as string ?? string.Empty;
+                    string args = arguments as string ?? string.Empty;
+                    if (!string.IsNullOrWhiteSpace(args)) return (targetPath + " " + args).Trim();
+                    return targetPath;
+                }
+                finally { Marshal.FinalReleaseComObject(shortcut); }
+            }
+            finally { Marshal.FinalReleaseComObject(shell); }
+        }
+        catch (Exception ex)
+        {
+            Log("  Could not resolve shortcut target: " + lnkPath + " -> " + ex.Message);
+        }
+        return string.Empty;
+    }
+
+    static bool IsDshShortcutTarget(string target)
+    {
+        if (string.IsNullOrWhiteSpace(target)) return false;
+        string t = target.Trim();
+        foreach (string dir in DshInstallDirs)
+        {
+            if (!string.IsNullOrEmpty(dir) && IsPathUnderAny(t, new string[] { dir })) return true;
+        }
+        if (!string.IsNullOrEmpty(DshRuntime) && IsPathUnderAny(t, new string[] { DshRuntime })) return true;
+        if (!string.IsNullOrEmpty(DshHome) && IsPathUnderAny(t, new string[] { DshHome })) return true;
+        if (t.IndexOf("dsh-edge-app", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+        if (t.IndexOf("launcher.vbs", StringComparison.OrdinalIgnoreCase) >= 0) return true;
         return false;
     }
 
@@ -1337,9 +1533,6 @@ partial class DSHDesktopUninstaller
             if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) continue;
             try
             {
-                // Some installers place shortcuts in sub-folders (for example
-                // "...\Start Menu\Programs\DSH Desktop\DSH Desktop.lnk"), so
-                // scan recursively instead of only checking the root.
                 foreach (string file in Directory.GetFiles(root, "*.lnk", SearchOption.AllDirectories))
                 {
                     string fileName = Path.GetFileName(file);
@@ -1352,9 +1545,17 @@ partial class DSHDesktopUninstaller
                             break;
                         }
                     }
-                    if (isKnown)
+                    if (!isKnown) continue;
+
+                    string target = ResolveShortcutTarget(file);
+                    if (IsDshShortcutTarget(target))
                     {
+                        Log("  Deleting known shortcut: " + file + " (target: " + target + ")");
                         DeleteFileIfExists(file);
+                    }
+                    else
+                    {
+                        Log("  Skipping same-name shortcut (target not DSH): " + file + " (target: " + (string.IsNullOrEmpty(target) ? "unknown" : target) + ")");
                     }
                 }
             }
@@ -1388,44 +1589,97 @@ partial class DSHDesktopUninstaller
             if (progressForm != null && !progressForm.IsDisposed)
             {
                 progressForm.Append(message);
-                Application.DoEvents();
             }
         }
-        catch
+        catch (Exception)
         {
+                Log("  Warning: non-fatal error ignored.");
         }
     }
 
 
-    // Runs an external command and records both the command line and its
-    // exit code in the log, so every operation can be audited afterwards.
-    static int RunCommandAndLog(string fileName, string arguments, int timeoutMs)
+
+      static void UpdateProgress(int percent)
+      {
+          try
+          {
+              if (progressForm != null && !progressForm.IsDisposed)
+              {
+                  progressForm.SetProgress(percent);
+              }
+          }
+          catch (Exception)
+          {
+                Log("  Warning: non-fatal error ignored.");
+          }
+      }
+
+
+  // Pump pending Windows messages so the progress window stays responsive
+  // during long synchronous cleanup operations (file deletion, waits).
+  static void PumpUi()
+  {
+        try { Application.DoEvents(); } catch (Exception) { Log("  Warning: non-fatal error ignored."); }
+  }
+
+  // Sleep in short slices while pumping UI messages. Use this instead of
+  // Thread.Sleep everywhere in the uninstall pipeline.
+  static void SleepWithUi(int milliseconds)
+  {
+      int slice = 100;
+      while (milliseconds > 0)
+      {
+          int step = milliseconds > slice ? slice : milliseconds;
+          Thread.Sleep(step);
+          PumpUi();
+          milliseconds -= step;
+      }
+  }
+
+  // Wait for an external process/condition while keeping the UI alive.
+  static bool WaitWithUi(Func<bool> done, int timeoutMs, int sliceMs = 100)
+  {
+      int waited = 0;
+      while (waited < timeoutMs)
+      {
+          bool finished = false;
+          try { finished = done(); } catch { finished = true; }
+          if (finished) return true;
+          SleepWithUi(sliceMs);
+          waited += sliceMs;
+      }
+      try { return done(); } catch { return false; }
+  }
+
+// Runs an external command and records both the command line and its
+// exit code in the log, so every operation can be audited afterwards.
+static int RunCommandAndLog(string fileName, string arguments, int timeoutMs)
+{
+    try
     {
-        try
+        Log("Command: " + fileName + " " + arguments);
+        ProcessStartInfo psi = new ProcessStartInfo(fileName, arguments);
+        psi.UseShellExecute = false;
+        psi.CreateNoWindow = true;
+        using (Process p = Process.Start(psi))
         {
-            Log("Command: " + fileName + " " + arguments);
-            ProcessStartInfo psi = new ProcessStartInfo(fileName, arguments);
-            psi.UseShellExecute = false;
-            psi.CreateNoWindow = true;
-            using (Process p = Process.Start(psi))
+            if (!WaitWithUi(() => p.HasExited, timeoutMs))
             {
-                if (!p.WaitForExit(timeoutMs))
-                {
-                    try { p.Kill(); } catch { }
-                    Log("Command result: TIMEOUT after " + timeoutMs + " ms -> " + fileName + " " + arguments);
-                    return -1;
-                }
-                int code = p.ExitCode;
-                Log("Command result: exit code " + code + " -> " + fileName + " " + arguments);
-                return code;
+                try { p.Kill(); } catch { }
+                Log("Command result: TIMEOUT after " + timeoutMs + " ms -> " + fileName + " " + arguments);
+                return -1;
             }
-        }
-        catch (Exception ex)
-        {
-            Log("Command failed: " + fileName + " " + arguments + " -> " + ex.Message);
-            return -1;
+            int code = p.ExitCode;
+            Log("Command result: exit code " + code + " -> " + fileName + " " + arguments);
+            return code;
         }
     }
+    catch (Exception ex)
+    {
+        Log("Command failed: " + fileName + " " + arguments + " -> " + ex.Message);
+        return -1;
+    }
+}
 
 
     static void ShowCompletionPopup()
@@ -1443,8 +1697,9 @@ partial class DSHDesktopUninstaller
             }
             MessageBox.Show(msg, "\u5378\u8f7d\u5b8c\u6210", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
-        catch
+        catch (Exception)
         {
+                Log("  Warning: non-fatal error ignored.");
         }
     }
 
@@ -1458,8 +1713,9 @@ partial class DSHDesktopUninstaller
             {
                 Console.ReadKey(true);
             }
-            catch
+            catch (Exception)
             {
+                Log("  Warning: non-fatal error ignored.");
             }
         }
     }

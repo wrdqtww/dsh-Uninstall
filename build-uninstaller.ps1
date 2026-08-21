@@ -34,7 +34,8 @@ $args = @(
     "/out:$tmpOut",
     "/r:$fwDir\System.Windows.Forms.dll",
     "/r:$fwDir\System.Drawing.dll",
-    "/r:$fwDir\System.Management.dll"
+    "/r:$fwDir\System.Management.dll",
+    "/r:$fwDir\System.Web.Extensions.dll"
 ) + $srcFiles
 
 Write-Host "Compiling: $csc" -ForegroundColor Cyan

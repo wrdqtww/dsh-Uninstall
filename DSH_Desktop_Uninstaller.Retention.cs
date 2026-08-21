@@ -43,30 +43,42 @@ partial class DSHDesktopUninstaller
 
         try
         {
-            foreach (string rawLine in File.ReadAllLines(presetFile))
-            {
-                string line = rawLine.Trim();
-                if (line.Length > 5 && line.StartsWith("name:", StringComparison.OrdinalIgnoreCase))
-                {
-                    string name = line.Substring(5).Trim();
-                    if (name.Length >= 2 &&
-                        ((name[0] == '"' && name[name.Length - 1] == '"') ||
-                         (name[0] == '\'' && name[name.Length - 1] == '\'')))
-                    {
-                        name = name.Substring(1, name.Length - 2);
-                    }
-                    if (!string.IsNullOrWhiteSpace(name))
-                    {
-                        return name.Trim();
-                    }
-                }
-            }
+            string name = ParseTopLevelScalar(File.ReadAllText(presetFile), "name");
+            if (!string.IsNullOrWhiteSpace(name)) return name.Trim();
         }
-        catch
+        catch (Exception)
         {
+            Log("  Warning: non-fatal error ignored.");
         }
 
         return Path.GetFileName(presetDir);
+    }
+
+    // Strict top-level YAML scalar parser for flat preset.yml files. It only
+    // accepts a key that starts at column 0 (no indentation), an optional
+    // comment marker, and a quoted or plain scalar value on the same line.
+    static string ParseTopLevelScalar(string text, string key)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        foreach (string rawLine in text.Split(new char[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (rawLine.Length == 0 || rawLine[0] == ' ' || rawLine[0] == '\t') continue;
+            string line = rawLine.TrimEnd();
+            if (line.StartsWith("#", StringComparison.Ordinal)) continue;
+            int colon = line.IndexOf(':');
+            if (colon < 0) continue;
+            string k = line.Substring(0, colon).Trim();
+            if (!k.Equals(key, StringComparison.OrdinalIgnoreCase)) continue;
+            string v = line.Substring(colon + 1).Trim();
+            int hash = v.IndexOf('#');
+            if (hash >= 0) v = v.Substring(0, hash).TrimEnd();
+            if (v.Length >= 2 && ((v[0] == '"' && v[v.Length - 1] == '"') || (v[0] == '\'' && v[v.Length - 1] == '\'')))
+            {
+                v = v.Substring(1, v.Length - 2);
+            }
+            return v;
+        }
+        return null;
     }
 
     static List<PluginInfo> DetectPlugins()
@@ -114,52 +126,32 @@ partial class DSHDesktopUninstaller
         try
         {
             string json = File.ReadAllText(pkgFile);
-            if (json.IndexOf("\"dsh\"", StringComparison.OrdinalIgnoreCase) < 0) return;
-            string packageName = ExtractJsonString(json, "name");
-            string description = ExtractJsonString(json, "description");
+            System.Web.Script.Serialization.JavaScriptSerializer serializer = new System.Web.Script.Serialization.JavaScriptSerializer();
+            Dictionary<string, object> pkg = serializer.Deserialize<Dictionary<string, object>>(json);
+            if (pkg == null) return;
+            string packageName = pkg.ContainsKey("name") ? (pkg["name"] as string) : null;
+            string description = pkg.ContainsKey("description") ? (pkg["description"] as string) : null;
             if (string.IsNullOrEmpty(packageName)) return;
+
+            // Authoritative plugin marker first (the plugin spec stores metadata
+            // under a top-level "dsh" key), then the package naming conventions.
+            bool isDsh = pkg.ContainsKey("dsh")
+                         || packageName.IndexOf("deepseek", StringComparison.OrdinalIgnoreCase) >= 0
+                         || packageName.StartsWith("dsh", StringComparison.OrdinalIgnoreCase)
+                         || packageName.IndexOf("dsh-", StringComparison.OrdinalIgnoreCase) >= 0
+                         || packageName.IndexOf("@dsh", StringComparison.OrdinalIgnoreCase) >= 0
+                         || packageName.IndexOf("/dsh", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (!isDsh) return;
 
             string display = string.IsNullOrEmpty(description)
                 ? packageName
-                : packageName + " — " + description;
+                : packageName + " 鈥?" + description;
             result.Add(new PluginInfo(packageName, display));
         }
-        catch
+        catch (Exception)
         {
+            Log("  Warning: non-fatal error ignored.");
         }
-    }
-
-    static string ExtractJsonString(string json, string key)
-    {
-        int keyIdx = json.IndexOf("\"" + key + "\"", StringComparison.OrdinalIgnoreCase);
-        if (keyIdx < 0) return null;
-        int colon = json.IndexOf(':', keyIdx);
-        if (colon < 0) return null;
-        int start = colon + 1;
-        while (start < json.Length && char.IsWhiteSpace(json[start])) start++;
-        if (start >= json.Length || json[start] != '"') return null;
-        start++;
-
-        System.Text.StringBuilder sb = new System.Text.StringBuilder();
-        for (int i = start; i < json.Length; i++)
-        {
-            char c = json[i];
-            if (c == '"') break;
-            if (c == '\\' && i + 1 < json.Length)
-            {
-                i++;
-                char esc = json[i];
-                if (esc == 'n') sb.Append('\n');
-                else if (esc == 't') sb.Append('\t');
-                else if (esc == 'r') sb.Append('\r');
-                else sb.Append(esc);
-            }
-            else
-            {
-                sb.Append(c);
-            }
-        }
-        return sb.ToString();
     }
 
     static List<SkillInfo> DetectSkills()
@@ -238,6 +230,7 @@ partial class DSHDesktopUninstaller
 
         List<PluginInfo> plugins = DetectPlugins();
         int preserved = 0;
+        HashSet<string> visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (PluginInfo plugin in plugins)
         {
             if (keepPluginNames.Count > 0 &&
@@ -249,21 +242,13 @@ partial class DSHDesktopUninstaller
             string src = FindPluginSourceDir(webModules, plugin.PackageName);
             if (string.IsNullOrEmpty(src)) continue;
 
-            string dest = Path.Combine(destRoot, plugin.PackageName.Replace('/', Path.DirectorySeparatorChar));
-            if (Directory.Exists(dest))
-            {
-                Log("  Plugin already exists in runtime: " + plugin.PackageName);
-                continue;
-            }
-
             try
             {
-                string destDir = Path.GetDirectoryName(dest);
-                if (string.IsNullOrEmpty(destDir)) destDir = destRoot;
-                Directory.CreateDirectory(destDir);
-                CopyDirectory(src, dest);
-                Log("  Preserved plugin: " + plugin.PackageName);
-                preserved++;
+                if (CopyPluginWithDependencies(webModules, destRoot, plugin.PackageName, visited))
+                {
+                    Log("  Preserved plugin: " + plugin.PackageName);
+                    preserved++;
+                }
             }
             catch (Exception ex)
             {
@@ -296,8 +281,9 @@ partial class DSHDesktopUninstaller
             string name = Path.GetFileName(Path.GetFullPath(dir));
             return name.Equals(".dsh", StringComparison.OrdinalIgnoreCase);
         }
-        catch
+        catch (Exception)
         {
+                Log("  Warning: non-fatal error ignored.");
             return false;
         }
     }
@@ -306,27 +292,17 @@ partial class DSHDesktopUninstaller
     {
         try
         {
-            if (string.IsNullOrWhiteSpace(dir)) return false;
+            if (string.IsNullOrWhiteSpace(dir) || IsUnsafeRootPath(dir)) return false;
             string full = Path.GetFullPath(dir);
-            string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            string windowsDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
-            string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
-            string programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
-            if (full.Equals(userProfile, StringComparison.OrdinalIgnoreCase)
-                || full.Equals(windowsDir, StringComparison.OrdinalIgnoreCase)
-                || full.Equals(programFiles, StringComparison.OrdinalIgnoreCase)
-                || full.Equals(programFilesX86, StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
             string name = Path.GetFileName(full);
             if (name.Equals(".dsh", StringComparison.OrdinalIgnoreCase)) return true;
             return Directory.Exists(Path.Combine(full, ".agent-presets"))
                 || Directory.Exists(Path.Combine(full, "sessions"))
                 || Directory.Exists(Path.Combine(full, "skills"));
         }
-        catch
+        catch (Exception)
         {
+            Log("  Warning: non-fatal error ignored.");
             return false;
         }
     }
@@ -504,6 +480,77 @@ partial class DSHDesktopUninstaller
         }
     }
 
+    // Copies one plugin plus its declared dependencies from the same
+    // node_modules tree, so the preserved plugin can actually load. Symlinks /
+    // junctions are skipped to avoid following a reparse point out of the tree.
+    static bool CopyPluginWithDependencies(string webModules, string destRoot, string packageName, HashSet<string> visited)
+    {
+        if (visited.Contains(packageName)) return false;
+        visited.Add(packageName);
+
+        string src = FindPluginSourceDir(webModules, packageName);
+        if (string.IsNullOrEmpty(src)) return false;
+
+        string dest = Path.Combine(destRoot, packageName.Replace('/', Path.DirectorySeparatorChar));
+        if (Directory.Exists(dest))
+        {
+            Log("  Plugin already exists in runtime: " + packageName);
+            return false;
+        }
+
+        string destDir = Path.GetDirectoryName(dest);
+        if (string.IsNullOrEmpty(destDir)) destDir = destRoot;
+        Directory.CreateDirectory(destDir);
+        CopyDirectory(src, dest);
+
+        List<string> deps = ReadDependencyKeys(Path.Combine(src, "package.json"));
+        foreach (string dep in deps)
+        {
+            if (visited.Contains(dep)) continue;
+            string depSrc = FindPluginSourceDir(webModules, dep);
+            if (string.IsNullOrEmpty(depSrc)) continue;
+            try
+            {
+                CopyPluginWithDependencies(webModules, destRoot, dep, visited);
+                Log("  Preserved dependency: " + dep + " (for " + packageName + ")");
+            }
+            catch (Exception ex)
+            {
+                Log("  Failed to preserve dependency " + dep + " (for " + packageName + "): " + ex.Message);
+            }
+        }
+        return true;
+    }
+
+    static List<string> ReadDependencyKeys(string pkgFile)
+    {
+        List<string> keys = new List<string>();
+        if (string.IsNullOrEmpty(pkgFile) || !File.Exists(pkgFile)) return keys;
+        try
+        {
+            string json = File.ReadAllText(pkgFile);
+            System.Web.Script.Serialization.JavaScriptSerializer serializer = new System.Web.Script.Serialization.JavaScriptSerializer();
+            Dictionary<string, object> pkg = serializer.Deserialize<Dictionary<string, object>>(json);
+            if (pkg == null) return keys;
+            foreach (string section in new string[] { "dependencies", "peerDependencies", "optionalDependencies" })
+            {
+                object sectionObj;
+                if (!pkg.TryGetValue(section, out sectionObj)) continue;
+                Dictionary<string, object> deps = sectionObj as Dictionary<string, object>;
+                if (deps == null) continue;
+                foreach (string key in deps.Keys)
+                {
+                    if (!keys.Contains(key)) keys.Add(key);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log("  Failed to parse dependency keys from " + pkgFile + ": " + ex.Message);
+        }
+        return keys;
+    }
+
     static void CopyDirectory(string sourceDir, string destDir)
     {
         Directory.CreateDirectory(destDir);
@@ -514,6 +561,19 @@ partial class DSHDesktopUninstaller
         }
         foreach (string sub in Directory.GetDirectories(sourceDir))
         {
+            try
+            {
+                FileAttributes attr = File.GetAttributes(sub);
+                if ((attr & FileAttributes.ReparsePoint) != 0)
+                {
+                    Log("  Skipping reparse point/junction during copy: " + sub);
+                    continue;
+                }
+            }
+            catch (Exception)
+            {
+                Log("  Warning: non-fatal error ignored.");
+            }
             CopyDirectory(sub, Path.Combine(destDir, Path.GetFileName(sub)));
         }
     }
@@ -527,17 +587,15 @@ partial class DSHDesktopUninstaller
             foreach (string d in Directory.GetDirectories(temp, "dsh*"))
             {
                 string name = Path.GetFileName(d);
-                // Narrow match: only "dsh-" prefixed directories that clearly
-                // contain a DSH log file. This avoids deleting a third-party
-                // tool's "dsh-backup" or "dsh_xyz" temp folder.
+                // Delete every "dsh-" prefixed temp directory: the prefix is
+                // reserved for this application family (spill, subprocess,
+                // tauri pages, uninstaller temp copies, etc.).
                 bool nameMatch = name.StartsWith("dsh-", StringComparison.OrdinalIgnoreCase);
 
-                bool contentMatch = File.Exists(Path.Combine(d, "dsh.log"))
-                                    || File.Exists(Path.Combine(d, "dsh-desktop.log"));
 
-                if (!nameMatch || !contentMatch)
+                if (!nameMatch)
                 {
-                    Log("  Skipping non-DSH temp: " + d + " (nameMatch=" + nameMatch + ", contentMatch=" + contentMatch + ")");
+                    Log("  Skipping non-DSH temp: " + d + " (nameMatch=False)");
                     continue;
                 }
 

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -42,8 +42,9 @@ partial class DSHDesktopUninstaller
                 AddInstallDir(dirs, currentDir);
             }
         }
-        catch
+        catch (Exception)
         {
+                Log("  Warning: non-fatal error ignored.");
         }
 
         // 4) Generic scan of common install roots.
@@ -147,8 +148,9 @@ partial class DSHDesktopUninstaller
                         }
                     }
                 }
-                catch
+                catch (Exception)
                 {
+                Log("  Warning: non-fatal error ignored.");
                 }
             }
         }
@@ -206,8 +208,9 @@ partial class DSHDesktopUninstaller
         {
             path = Path.GetFullPath(path);
         }
-        catch
+        catch (Exception)
         {
+                Log("  Warning: non-fatal error ignored.");
         }
         return path.TrimEnd('\\');
     }
@@ -244,8 +247,9 @@ partial class DSHDesktopUninstaller
                     }
                 }
             }
-            catch
+            catch (Exception)
             {
+                Log("  Warning: non-fatal error ignored.");
             }
         }
 
@@ -287,10 +291,39 @@ partial class DSHDesktopUninstaller
             try
             {
                 string path = GetProcessExecutablePath(p);
-                if (string.IsNullOrEmpty(path)) continue;
+                if (string.IsNullOrEmpty(path))
+                {
+                    continue;
+                }
 
                 string fileName = Path.GetFileName(path);
-                if (!IsKnownExeName(fileName))
+
+                // Running-process detection always uses the broad all-variant
+                // list. Do not use IsKnownExeName here: after a variant profile
+                // is applied, KnownExeNames is narrowed to one variant, and the
+                // /DetectRunning mode would stop recognizing other running DSH
+                // desktops.
+                bool isDshExe = NameMatcher.EqualsToken(fileName, VariantCatalog.AllExeNames);
+
+                // The edge-shortcut variant (2633352305) has no exe; it runs
+                // launcher.vbs through wscript.exe. Detect it via the command
+                // line and map it to %LOCALAPPDATA%\dsh-edge-app.
+                if (!isDshExe &&
+                    (fileName.Equals("wscript.exe", StringComparison.OrdinalIgnoreCase) ||
+                     fileName.Equals("wscript", StringComparison.OrdinalIgnoreCase)))
+                {
+                    string cmd = GetProcessCommandLine(p.Id);
+                    if (!string.IsNullOrEmpty(cmd) &&
+                        cmd.IndexOf("dsh-edge-app", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                        cmd.IndexOf("launcher.vbs", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        string edgeDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "dsh-edge-app");
+                        if (Directory.Exists(edgeDir)) AddInstallDir(dirs, edgeDir);
+                    }
+                    continue;
+                }
+
+                if (!isDshExe)
                 {
                     continue;
                 }
@@ -302,8 +335,9 @@ partial class DSHDesktopUninstaller
                         continue;
                     }
                 }
-                catch
+                catch (Exception)
                 {
+                    Log("  Warning: non-fatal error ignored.");
                 }
 
                 string dir = Path.GetDirectoryName(path);
@@ -312,8 +346,9 @@ partial class DSHDesktopUninstaller
                     AddInstallDir(dirs, dir);
                 }
             }
-            catch
+            catch (Exception)
             {
+                Log("  Warning: non-fatal error ignored.");
             }
         }
         return dirs;
@@ -354,27 +389,14 @@ partial class DSHDesktopUninstaller
     {
         if (string.IsNullOrWhiteSpace(path)) return string.Empty;
 
+        // Official repo token wins, then the data-driven path-hint map in
+        // VariantCatalog (single source of truth, no second label copy here).
         string lower = path.ToLowerInvariant();
         if (lower.Contains("deepseek-ai") || lower.Contains("deepseek_ai")) return "官方 deepseek-ai/deepseek-harness";
-        if (lower.Contains("dsh-edge-app")) return "第三方 2633352305/DeepSeekHarness-Desktop";
-        if (lower.Contains("dsh-integration")) return "第三方 lai-133/dsh-integration";
-        if (lower.Contains("ackow")) return "第三方 Ackow/dsh-desktop";
-        if (lower.Contains("lburny")) return "第三方 LBurny/deepseek-harness-desktop";
-        if (lower.Contains("amazingboycrazy")) return "第三方 AmazingBoyCrazy/dsh_desktop";
-        if (lower.Contains("easyhoov") || lower.Contains("deepseek-harness-desktop-windows")) return "第三方 Easyhoov/deepseek-harness-desktop-windows";
-        if (lower.Contains("deepseek-harness-eac") || lower.Contains("deepseek harness eac")) return "第三方 zouyuxuan122/Deepseek-Harness-EAC";
-        if (lower.Contains("steven-kid")) return "第三方 steven-kid/deepseek-harness-desktop";
-        if (lower.Contains("deepseek harness desktop")) return "第三方 Easyhoov/deepseek-harness-desktop-windows";
-        if (lower.Contains("dsh-desktop-hub") || lower.Contains("dsh desktop hub")) return "第三方 FlashingChen/dsh-desktop-hub";
         if (lower.Contains("dsh-desktop-client")) return string.Empty; // npm plugin, not a desktop repo
-        if (lower.Contains("dsh-cockpit") || lower.Contains("dsh cockpit")) return "第三方 Lxiayu/DshCockpit";
-        if (lower.Contains("dsh-studio")) return "第三方 gxcsoccer/dsh-studio";
-        if (lower.Contains("dsh-electron-shell")) return "第三方 citrusli2026/dsh-electron-shell";
-        if (lower.Contains("dsh-web") || lower.Contains("dsh web")) return "第三方 ding7015869-alt/dsh-web-desktop";
-        if (lower.Contains("dsh-client")) return "第三方 hastings0714/dsh-client";
-        if (lower.Contains("deepseek-harness")) return "第三方 steven-kid/deepseek-harness-desktop";
-        if (lower.Contains("dsh desktop") || lower.Contains("dsh-desktop")) return "第三方 myYangyunfan/dsh_desktop";
-        if (lower.Contains("dsh-desk") || lower.Contains("dsh desk")) return "第三方 majiayu000/dsh-desk";
+
+        string label = VariantCatalog.FindLabelByPath(path);
+        if (!string.IsNullOrEmpty(label)) return label;
 
         return string.Empty;
     }
@@ -422,8 +444,9 @@ partial class DSHDesktopUninstaller
                         }
                     }
                 }
-                catch
+                catch (Exception)
                 {
+                Log("  Warning: non-fatal error ignored.");
                 }
             }
         }
@@ -431,50 +454,33 @@ partial class DSHDesktopUninstaller
     }
     static string ResolveVariantLabelFromRegistryEntry(string keyName, string displayName, string publisher, string urlInfoAbout, string pathForHeuristic)
     {
-        // 1) Display names that are unique to one repo win first (several repos
-        //    share appIds or contain each other's substrings).
-        if (!string.IsNullOrWhiteSpace(displayName))
-        {
-            string dn = displayName.Trim();
-            if (dn.IndexOf("EAC", StringComparison.OrdinalIgnoreCase) >= 0) return "第三方 zouyuxuan122/Deepseek-Harness-EAC";
-            if (dn.IndexOf("DSH Desktop Hub", StringComparison.OrdinalIgnoreCase) >= 0) return "第三方 FlashingChen/dsh-desktop-hub";
-            if (dn.IndexOf("DshCockpit", StringComparison.OrdinalIgnoreCase) >= 0) return "第三方 Lxiayu/DshCockpit";
-            if (dn.IndexOf("DSH-Web", StringComparison.OrdinalIgnoreCase) >= 0 || dn.IndexOf("dsh-web", StringComparison.OrdinalIgnoreCase) >= 0) return "第三方 ding7015869-alt/dsh-web-desktop";
-            if (dn.IndexOf("DSHDesktop", StringComparison.OrdinalIgnoreCase) >= 0) return "第三方 Ackow/dsh-desktop";
-            if (dn.IndexOf("DeepSeek Harness Desktop", StringComparison.OrdinalIgnoreCase) >= 0) return "第三方 Easyhoov/deepseek-harness-desktop-windows";
-            if (dn.IndexOf("DeepSeek Harness", StringComparison.OrdinalIgnoreCase) >= 0) return "第三方 steven-kid/deepseek-harness-desktop";
-            if (dn.IndexOf("dsh-desktop", StringComparison.OrdinalIgnoreCase) >= 0) return "第三方 myYangyunfan/dsh_desktop";
-            if (dn.IndexOf("DSH Desktop", StringComparison.OrdinalIgnoreCase) >= 0) return "第三方 myYangyunfan/dsh_desktop";
-            if (dn.IndexOf("DSH Desk", StringComparison.OrdinalIgnoreCase) >= 0) return "第三方 majiayu000/dsh-desk";
-        }
-
-        // 2) Exact uninstall-key appId is authoritative for every repo except
-        //    com.deepseek.dsh.desktop, which both official DSH Desktop and the
-        //    EAC variant use; EAC was already handled above by display name.
         if (!string.IsNullOrWhiteSpace(keyName))
         {
             VariantProfile p = VariantCatalog.FindByAppId(keyName);
-            if (p != null) return p.Label;
+            if (p != null)
+            {
+                if (keyName.Equals("com.deepseek.dsh.desktop", StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrWhiteSpace(displayName)
+                    && displayName.IndexOf("EAC", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return "第三方 zouyuxuan122/Deepseek-Harness-EAC";
+                }
+                return p.Label;
+            }
         }
 
-        // 3) Publisher / URL hints.
+        if (!string.IsNullOrWhiteSpace(displayName))
+        {
+            VariantProfile dp = VariantCatalog.FindByDisplayName(displayName);
+            if (dp != null) return dp.Label;
+        }
+
         if (!string.IsNullOrWhiteSpace(urlInfoAbout))
         {
-            string lowerUrl = urlInfoAbout.ToLowerInvariant();
-            if (lowerUrl.Contains("easyhoov")) return "第三方 Easyhoov/deepseek-harness-desktop-windows";
-            if (lowerUrl.Contains("steven-kid")) return "第三方 steven-kid/deepseek-harness-desktop";
-            if (lowerUrl.Contains("amazingboycrazy")) return "第三方 AmazingBoyCrazy/dsh_desktop";
-            if (lowerUrl.Contains("lburny")) return "第三方 LBurny/deepseek-harness-desktop";
-            if (lowerUrl.Contains("ackow")) return "第三方 Ackow/dsh-desktop";
-            if (lowerUrl.Contains("citrusli2026")) return "第三方 citrusli2026/dsh-electron-shell";
-            if (lowerUrl.Contains("flashingchen")) return "第三方 FlashingChen/dsh-desktop-hub";
-            if (lowerUrl.Contains("majiayu000")) return "第三方 majiayu000/dsh-desk";
-            if (lowerUrl.Contains("ding7015869")) return "第三方 ding7015869-alt/dsh-web-desktop";
-            if (lowerUrl.Contains("lxiayu")) return "第三方 Lxiayu/DshCockpit";
-            if (lowerUrl.Contains("zouyuxuan122")) return "第三方 zouyuxuan122/Deepseek-Harness-EAC";
+            VariantProfile up = VariantCatalog.FindByRepoToken(urlInfoAbout);
+            if (up != null) return up.Label;
         }
 
-        // 4) Path heuristics.
         if (!string.IsNullOrWhiteSpace(pathForHeuristic))
         {
             string label = ResolveLabelFromPath(pathForHeuristic);
@@ -483,6 +489,7 @@ partial class DSHDesktopUninstaller
 
         return string.Empty;
     }
+
     static bool HasDshExecutable(string dir)
     {
         if (string.IsNullOrEmpty(dir)) return false;
@@ -518,8 +525,9 @@ partial class DSHDesktopUninstaller
                     return true;
                 }
             }
-            catch
+            catch (Exception)
             {
+                Log("  Warning: non-fatal error ignored.");
             }
         }
 
@@ -535,8 +543,9 @@ partial class DSHDesktopUninstaller
                     return true;
                 }
             }
-            catch
+            catch (Exception)
             {
+                Log("  Warning: non-fatal error ignored.");
             }
         }
 
@@ -554,6 +563,29 @@ partial class DSHDesktopUninstaller
     }
 
     // MainModule.FileName throws for elevated/other-session processes. Fall back
+
+    // WMI CommandLine lookup for script-host processes (wscript.exe running
+    // launcher.vbs). Returns string.Empty when unavailable.
+    static string GetProcessCommandLine(int pid)
+    {
+        try
+        {
+            using (System.Management.ManagementObjectSearcher searcher =
+                new System.Management.ManagementObjectSearcher("SELECT CommandLine FROM Win32_Process WHERE ProcessId = " + pid))
+            {
+                foreach (System.Management.ManagementObject obj in searcher.Get())
+                {
+                    string cmd = obj["CommandLine"] as string;
+                    return string.IsNullOrEmpty(cmd) ? string.Empty : cmd;
+                }
+            }
+        }
+        catch (Exception)
+        {
+            Log("  Warning: non-fatal error ignored.");
+        }
+        return string.Empty;
+    }
     // to a WMI Win32_Process query so process detection still works for those.
     static string GetProcessExecutablePath(Process p)
     {
@@ -562,8 +594,9 @@ partial class DSHDesktopUninstaller
             string path = p.MainModule.FileName;
             if (!string.IsNullOrEmpty(path)) return path;
         }
-        catch
+        catch (Exception)
         {
+                Log("  Warning: non-fatal error ignored.");
         }
 
         try
@@ -577,8 +610,9 @@ partial class DSHDesktopUninstaller
                 }
             }
         }
-        catch
+        catch (Exception)
         {
+                Log("  Warning: non-fatal error ignored.");
         }
 
         return string.Empty;
@@ -629,35 +663,22 @@ partial class DSHDesktopUninstaller
     {
         try
         {
-            // DSH_HOME may point to a custom user-data location.
             string env = Environment.GetEnvironmentVariable("DSH_HOME");
             if (!string.IsNullOrWhiteSpace(env))
             {
                 string candidate = env.Trim().TrimEnd('\\');
                 string full = Path.GetFullPath(candidate);
-                string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-                string windowsDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
-                string root = Path.GetPathRoot(full);
-
-                bool isSafe =
-                    !string.IsNullOrEmpty(full) &&
-                    !full.Equals(root, StringComparison.OrdinalIgnoreCase) &&
-                    !full.Equals(userProfile, StringComparison.OrdinalIgnoreCase) &&
-                    !full.Equals(windowsDir, StringComparison.OrdinalIgnoreCase) &&
+                bool isSafe = !IsUnsafeRootPath(full) &&
                     (Path.GetFileName(full).StartsWith(".dsh", StringComparison.OrdinalIgnoreCase) ||
                      Directory.Exists(Path.Combine(full, ".agent-presets")) ||
                      Directory.Exists(Path.Combine(full, "sessions")) ||
                      Directory.Exists(Path.Combine(full, "skills")));
-
-                if (isSafe)
-                {
-                    return full;
-                }
+                if (isSafe) return full;
             }
         }
-        catch
+        catch (Exception)
         {
-            // Invalid DSH_HOME values must never make uninstallation unsafe.
+            Log("  Warning: non-fatal error ignored.");
         }
 
         return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dsh");
