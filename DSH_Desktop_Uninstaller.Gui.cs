@@ -62,6 +62,7 @@ partial class DSHDesktopUninstaller
             MaximizeBox = false;
             MinimizeBox = false;
             ShowInTaskbar = true;
+            AutoScroll = true;
             ClientSize = new Size(580, 420);
 
             lblCurrentOp = new Label();
@@ -582,6 +583,7 @@ partial class DSHDesktopUninstaller
             MaximizeBox = false;
             MinimizeBox = false;
             ShowInTaskbar = true;
+            AutoScroll = true;
             ClientSize = new Size(520, 650);
             Font = new Font("Microsoft YaHei UI", 9F);
             // High-DPI: scale the fixed-pixel layout proportionally on 125%/150%

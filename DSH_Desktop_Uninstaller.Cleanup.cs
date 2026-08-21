@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -121,7 +121,6 @@ partial class DSHDesktopUninstaller
     }
 
     static bool IsDshProcess(Process p)
-
     {
         try
         {
@@ -139,10 +138,13 @@ partial class DSHDesktopUninstaller
                 {
                 }
 
-                if (!string.IsNullOrEmpty(DshInstallDir) &&
-                    path.StartsWith(DshInstallDir + "\\", StringComparison.OrdinalIgnoreCase))
+                foreach (string dir in DshInstallDirs)
                 {
-                    return true;
+                    if (!string.IsNullOrEmpty(dir) &&
+                        path.StartsWith(dir.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
                 }
 
                 string fileName = Path.GetFileName(path);
@@ -321,7 +323,7 @@ partial class DSHDesktopUninstaller
         }
         catch
         {
-            return value;
+            return (value ?? string.Empty).Trim().Trim('\u0022').TrimEnd('\u005C');
         }
     }
         static void TryRemoveEnvVar(RegistryKey root, string name)
@@ -358,10 +360,9 @@ partial class DSHDesktopUninstaller
     }
 
     static bool IsKnownAppId(string id)
-
     {
         if (string.IsNullOrEmpty(id)) return false;
-        foreach (string known in KnownAppIds)
+        foreach (string known in VariantCatalog.AllAppIds)
         {
             if (known.Equals(id, StringComparison.OrdinalIgnoreCase)) return true;
         }
@@ -373,7 +374,7 @@ partial class DSHDesktopUninstaller
     {
         if (string.IsNullOrEmpty(id)) return false;
         if (IsKnownAppId(id)) return true;
-        foreach (string known in KnownAppIds)
+        foreach (string known in VariantCatalog.AllAppIds)
         {
             if (id.StartsWith(known + "_", StringComparison.OrdinalIgnoreCase) ||
                 id.StartsWith(known + "-", StringComparison.OrdinalIgnoreCase))
@@ -401,7 +402,10 @@ partial class DSHDesktopUninstaller
 
     static bool HasVariantProfile()
     {
-        return variantExeNames != null || variantAppIds != null;
+        return (variantExeNames != null && variantExeNames.Length > 0) ||
+               (variantProcessNames != null && variantProcessNames.Length > 0) ||
+               (variantAppIds != null && variantAppIds.Length > 0) ||
+               (variantShortcutNames != null && variantShortcutNames.Length > 0);
     }
 
     static bool IsTargetedUninstallEntry(string keyName, string displayName, string pathForHeuristic)
@@ -417,8 +421,11 @@ partial class DSHDesktopUninstaller
                 NameMatcher.ContainsToken(displayName, KnownExeNames)) return true;
             if (NameMatcher.ContainsToken(pathForHeuristic, KnownProcessNames) ||
                 NameMatcher.ContainsToken(pathForHeuristic, KnownExeNames)) return true;
-            if (!string.IsNullOrEmpty(DshInstallDir) &&
-                pathForHeuristic.IndexOf(DshInstallDir.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            foreach (string dir in DshInstallDirs)
+            {
+                if (!string.IsNullOrEmpty(dir) &&
+                    pathForHeuristic.IndexOf(dir.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            }
             return false;
         }
 
@@ -440,8 +447,11 @@ partial class DSHDesktopUninstaller
                 NameMatcher.ContainsToken(valueName, KnownExeNames) ||
                 NameMatcher.ContainsToken(value, KnownProcessNames) ||
                 NameMatcher.ContainsToken(value, KnownExeNames)) return true;
-            if (!string.IsNullOrEmpty(DshInstallDir) &&
-                value.IndexOf(DshInstallDir.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            foreach (string dir in DshInstallDirs)
+            {
+                if (!string.IsNullOrEmpty(dir) &&
+                    value.IndexOf(dir.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            }
             return false;
         }
 
@@ -528,7 +538,6 @@ partial class DSHDesktopUninstaller
     }
 
     static void DeleteRegSubKey(RegistryKey root, string subKey, string label)
-
     {
         try
         {
@@ -694,7 +703,6 @@ partial class DSHDesktopUninstaller
     }
 
     static bool IsDshPathEntry(string trimmed)
-
     {
         if (string.IsNullOrEmpty(trimmed)) return false;
 
@@ -711,9 +719,12 @@ partial class DSHDesktopUninstaller
         {
             if (expanded.Equals(Path.Combine(DshHome, "bin"), StringComparison.OrdinalIgnoreCase)) return true;
         }
-        if (!string.IsNullOrEmpty(DshInstallDir) &&
-            (expanded.StartsWith(DshInstallDir.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase) ||
-             trimmed.StartsWith(DshInstallDir.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase))) return true;
+        foreach (string dir in DshInstallDirs)
+        {
+            if (string.IsNullOrEmpty(dir)) continue;
+            if (expanded.StartsWith(dir.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.StartsWith(dir.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase)) return true;
+        }
         // Broader heuristic for variants not installed in the detected dir.
         return IsDshRelatedPath(trimmed) || IsDshRelatedPath(expanded);
     }

@@ -49,7 +49,7 @@ partial class DSHDesktopUninstaller
         "dshdesktop.exe",
         "deepseek-harness-desktop.exe",
         "DSH-Desktop.exe",
-        "DeepSeek-runtime-Desktop.exe",
+        "DeepSeek-harness-Desktop.exe",
         "dsh-desk.exe",
         "dsh-studio.exe",
         "dsh-desktop-hub.exe",
@@ -74,7 +74,7 @@ partial class DSHDesktopUninstaller
         "dshdesktop",
         "deepseek-harness-desktop",
         "DSH-Desktop",
-        "DeepSeek-runtime-Desktop",
+        "DeepSeek-harness-Desktop",
         "dsh-desk",
         "dsh-studio",
         "dsh-desktop-hub",
@@ -99,7 +99,7 @@ partial class DSHDesktopUninstaller
         "deepseek-harness.lnk",
         "deepseek-harness-desktop.lnk",
         "DSH-Desktop.lnk",
-        "DeepSeek-runtime-Desktop.lnk",
+        "DeepSeek-harness-Desktop.lnk",
         "dsh-desk.lnk",
         "dsh-studio.lnk",
         "dsh-desktop-hub.lnk",
@@ -130,7 +130,7 @@ partial class DSHDesktopUninstaller
         "deepseek-harness",
         "deepseek-harness-desktop",
         "DSH-Desktop",
-        "DeepSeek-runtime-Desktop",
+        "DeepSeek-harness-Desktop",
         "dsh-desk",
         "dsh-studio",
         "dsh-desktop-hub",
@@ -158,7 +158,7 @@ partial class DSHDesktopUninstaller
         "deepseek-harness",
         "deepseek-harness-desktop",
         "DSH-Desktop",
-        "DeepSeek-runtime-Desktop",
+        "DeepSeek-harness-Desktop",
         "dsh-desk",
         "dsh-studio",
         "dsh-desktop-hub",
@@ -192,28 +192,17 @@ partial class DSHDesktopUninstaller
     static string[] KnownUpdaterDirNames { get { return variantUpdaterDirNames ?? AllUpdaterDirNames; } }
     static string[] KnownRoamingDirNames { get { return variantRoamingDirNames ?? AllRoamingDirNames; } }
     static string[] KnownLocalAppDataDirNames { get { return variantLocalAppDataDirNames ?? AllLocalAppDataDirNames; } }
-    static string[] TargetAppIds { get { return variantAppIds ?? KnownAppIds; } }
+    static string[] TargetAppIds { get { return variantAppIds ?? VariantCatalog.AllAppIds; } }
     static string[] KnownInstallDirNames { get { return variantInstallDirNames ?? new string[0]; } }
 
 
-    static readonly string[] KnownAppIds = new string[]
-    {
-        "com.deepseek.dsh.desktop",
-        "io.github.amazingboycrazy.dsh-desktop",
-        "com.deepseek.harness.desktop",
-        "io.dsh.desktop",
-        "io.github.steven-kid.deepseek-harness-desktop",
-        "com.dshdesktop.desktop",
-        "ai.deepseek.harness.desk",
-        "com.dshdesktophub.app",
-        "io.github.citrusli2026.dsh-electron-shell",
-        "com.dshcockpit.app"
-    };
+        // KnownAppIds was merged into VariantCatalog.AllAppIds (see DSH_Desktop_Uninstaller.Core.cs).
 
     // AppId -> label mapping now lives in VariantCatalog.Profiles (see
     // DSH_Desktop_Uninstaller.Core.cs) and is queried via VariantCatalog.FindByAppId.
 
     static string DshInstallDir = string.Empty;
+    static List<string> DshInstallDirs = new List<string>();
     const string LegacyUninstallRegKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\62276e9d-c5f3-5091-b4ee-c7144d6db450";
     static string MachineEnvKey = @"SYSTEM\CurrentControlSet\Control\Session Manager\Environment";
     static string DshHome = string.Empty;
@@ -343,6 +332,12 @@ partial class DSHDesktopUninstaller
         catch (Exception ex) { Log("SafeResolveDshInstallDir failed: " + ex.Message); return string.Empty; }
     }
 
+    static List<string> SafeResolveDshInstallDirs()
+    {
+        try { return ResolveDshInstallDirs(); }
+        catch (Exception ex) { Log("SafeResolveDshInstallDirs failed: " + ex.Message); return new List<string>(); }
+    }
+
     static string SafeFindRunningDshInstallDir()
     {
         try { return FindRunningDshInstallDir(); }
@@ -365,8 +360,8 @@ partial class DSHDesktopUninstaller
     // code that scripts can check.
     static int failureCount = 0;
 
-        // Version shown in the log so a support report can reproduce behavior.
-        static readonly string UninstallerVersion = "1.2.1";
+    // Version shown in the log so a support report can reproduce behavior.
+    static readonly string UninstallerVersion = "1.2.2";
 
 
     class PresetInfo
@@ -413,15 +408,20 @@ partial class DSHDesktopUninstaller
     static string BuildDeletionTargetsSummary()
     {
         List<string> targets = new List<string>();
-        if (!string.IsNullOrEmpty(DshInstallDir))
+        if (DshInstallDirs.Count > 0)
         {
-            targets.Add("安装目录：" + DshInstallDir);
+            targets.Add("安装目录：" + string.Join(" | ", DshInstallDirs.ToArray()));
         }
         List<string> extraDirs = new List<string>();
         foreach (string dir in GetKnownExtraDirectories())
         {
             if (string.IsNullOrEmpty(dir)) continue;
-            if (!string.IsNullOrEmpty(DshInstallDir) && dir.Equals(DshInstallDir, StringComparison.OrdinalIgnoreCase)) continue;
+            bool isInstall = false;
+            foreach (string idir in DshInstallDirs)
+            {
+                if (!string.IsNullOrEmpty(idir) && dir.Equals(idir, StringComparison.OrdinalIgnoreCase)) { isInstall = true; break; }
+            }
+            if (isInstall) continue;
             extraDirs.Add(dir);
         }
         if (extraDirs.Count > 0)
@@ -486,7 +486,7 @@ partial class DSHDesktopUninstaller
             ? "确定卸载 DSH / DeepSeek Harness 桌面端并删除所有用户数据吗？"
             : "确定卸载 DSH / DeepSeek Harness 桌面端并保留以下内容吗？\r\n\r\n保留：\r\n" + summary;
                 message += "\r\n\r\n将删除：\r\n" + BuildDeletionTargetsSummary();
-            if (string.IsNullOrEmpty(DshInstallDir))
+            if (DshInstallDirs.Count == 0)
             {
                 message += "\r\n\r\n⚠️ 未检测到 DSH 安装目录，将仅清理用户数据与已知额外目录。";
             }
@@ -542,7 +542,8 @@ partial class DSHDesktopUninstaller
 
         // Stage 2: with the variant profile applied (or generic lists when no
         // profile matched), resolve the install directory.
-        DshInstallDir = SafeResolveDshInstallDir();
+        DshInstallDirs = SafeResolveDshInstallDirs();
+        DshInstallDir = DshInstallDirs.Count > 0 ? DshInstallDirs[0] : string.Empty;
 
         // Stage 3: if stage 1 could not identify a variant but an install dir
         // was found, derive the label from that dir and re-apply once.
@@ -603,10 +604,10 @@ partial class DSHDesktopUninstaller
                     return p.ExitCode;
                 }
             }
-                        catch (Exception ex)
+            catch (Exception ex)
             {
-                MessageBox.Show("需要管理员权限，请右键以管理员身份运行。" + Environment.NewLine + Environment.NewLine + ex.Message,
-                    "DSH 桌面端卸载器", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show("\u9700\u8981\u7ba1\u7406\u5458\u6743\u9650\uff0c\u8bf7\u53f3\u952e\u4ee5\u7ba1\u7406\u5458\u8eab\u4efd\u8fd0\u884c\u3002" + Environment.NewLine + Environment.NewLine + ex.Message,
+                    "DSH \u684c\u9762\u7aef\u5378\u8f7d\u5668", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return 1;
             }
         }
@@ -627,9 +628,9 @@ partial class DSHDesktopUninstaller
         }
         Log("Command line: " + Environment.CommandLine);
         Log("Log file: " + LogFilePath);
-            Log("Uninstaller version: " + UninstallerVersion);
-            Log("Administrator: " + IsAdministrator());
-            Log("Variant config fingerprint: exe=" + KnownExeNames.Length + ", proc=" + KnownProcessNames.Length + ", shortcut=" + KnownShortcutNames.Length + ", appId=" + TargetAppIds.Length);
+        Log("Uninstaller version: " + UninstallerVersion);
+        Log("Administrator: " + IsAdministrator());
+        Log("Variant config fingerprint: exe=" + KnownExeNames.Length + ", proc=" + KnownProcessNames.Length + ", shortcut=" + KnownShortcutNames.Length + ", appId=" + TargetAppIds.Length);
 
         if (helpRequested)
         {
@@ -714,13 +715,14 @@ partial class DSHDesktopUninstaller
         catch (Exception ex)
         {
             Log("ERROR: " + ex);
-            Console.WriteLine("Error: " + ex.Message);
+            MessageBox.Show("\u5378\u8f7d\u8fc7\u7a0b\u53d1\u751f\u9519\u8bef\uff1a\r\n" + ex.Message + "\r\n\r\n\u65e5\u5fd7\uff1a\r\n" + LogService.MainPath, "DSH \u684c\u9762\u7aef\u5378\u8f7d\u5668", MessageBoxButtons.OK, MessageBoxIcon.Error);
             ScheduleSelfTempDeletion();
             Pause();
             return 1;
         }
 
         ScheduleSelfTempDeletion();
+        if (!silent) ShowCompletionPopup();
         Pause();
         // In silent mode report cleanup failures via a non-zero exit code so
         // scripts can detect a partial uninstall; interactive mode returns 0.
@@ -801,6 +803,7 @@ partial class DSHDesktopUninstaller
         Console.WriteLine("    /KeepModelConfig       保留模型配置与凭据");
         Console.WriteLine("    /KeepOtherUserData     保留其他 .dsh 数据");
         Console.WriteLine("    /KeepPlugins[=名称]    保留插件（不填=全部）");
+        Console.WriteLine("    /KeepVision           \u4fdd\u7559 dsh-vision \u63d2\u4ef6\uff08\u7b49\u540c\u4e8e /KeepPlugins=@dsh-external/dsh-vision\uff09");
         Console.WriteLine("    /KeepRuntime           保留 .dsh-runtime");
         Console.WriteLine("    /KeepAll               保留以上全部");
     }
@@ -808,14 +811,14 @@ partial class DSHDesktopUninstaller
     static void RunDryRun()
     {
         Log("===== DSH Desktop Uninstaller Dry-Run =====");
-        Log("安装目录:   " + (string.IsNullOrEmpty(DshInstallDir) ? "(未检测到)" : DshInstallDir));
+        Log("\u5b89\u88c5\u76ee\u5f55:   " + (DshInstallDirs.Count > 0 ? string.Join(" | ", DshInstallDirs.ToArray()) : "(\u672a\u68c0\u6d4b\u5230)"));
         Log("当前DSH:    " + DetectedVariantLabel);
         Log("用户数据:   " + DshHome);
         Log("运行时:     " + DshRuntime);
         Log("保留:       " + RetentionSummary());
         Log("");
         Log("将删除的主要内容:");
-        Log("  - 安装目录: " + (string.IsNullOrEmpty(DshInstallDir) ? "(未检测到，跳过)" : DshInstallDir));
+        Log("  - \u5b89\u88c5\u76ee\u5f55: " + (DshInstallDirs.Count > 0 ? string.Join(" | ", DshInstallDirs.ToArray()) : "(\u672a\u68c0\u6d4b\u5230\uff0c\u8df3\u8fc7)"));
         foreach (string dir in GetKnownExtraDirectories())
         {
             if (!string.IsNullOrEmpty(dir)) Log("  - 额外目录: " + dir);
@@ -843,9 +846,12 @@ partial class DSHDesktopUninstaller
         try
         {
             string exeDir = Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
-            return !string.IsNullOrEmpty(exeDir) &&
-                   !string.IsNullOrEmpty(DshInstallDir) &&
-                   exeDir.Equals(DshInstallDir, StringComparison.OrdinalIgnoreCase);
+            if (string.IsNullOrEmpty(exeDir)) return false;
+            foreach (string dir in DshInstallDirs)
+            {
+                if (!string.IsNullOrEmpty(dir) && exeDir.Equals(dir, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
         }
         catch
         {
@@ -890,7 +896,10 @@ partial class DSHDesktopUninstaller
             if (string.IsNullOrEmpty(exeDir)) return;
 
             List<string> doomed = new List<string>();
-            if (!string.IsNullOrEmpty(DshInstallDir)) doomed.Add(DshInstallDir);
+            foreach (string dir in DshInstallDirs)
+            {
+                if (!string.IsNullOrEmpty(dir)) doomed.Add(dir);
+            }
             if (!string.IsNullOrEmpty(DshHome)) doomed.Add(DshHome);
             if (!string.IsNullOrEmpty(DshRuntime)) doomed.Add(DshRuntime);
             if (!string.IsNullOrEmpty(selfTempDir)) doomed.Add(selfTempDir);
@@ -912,7 +921,7 @@ partial class DSHDesktopUninstaller
             string copyPath = Path.Combine(safeDir, "DSH_Uninstaller_" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".log");
             if (!copyPath.Equals(LogFilePath, StringComparison.OrdinalIgnoreCase))
             {
-                File.Copy(LogFilePath, copyPath, true);
+                if (File.Exists(LogService.MainPath)) File.Copy(LogService.MainPath, copyPath, true);
                 LogService.SetCopyPath(copyPath);
                 Log("Log copy preserved at: " + copyPath);
             }
@@ -929,7 +938,7 @@ partial class DSHDesktopUninstaller
                     string copyPath = Path.Combine(desktop, "DSH_Uninstaller_" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".log");
                     if (!copyPath.Equals(LogFilePath, StringComparison.OrdinalIgnoreCase))
                     {
-                        File.Copy(LogFilePath, copyPath, true);
+                        if (File.Exists(LogService.MainPath)) File.Copy(LogService.MainPath, copyPath, true);
                         LogService.SetCopyPath(copyPath);
                         Log("Log copy preserved on desktop: " + copyPath);
                     }
@@ -973,13 +982,17 @@ partial class DSHDesktopUninstaller
             string exeDir = Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
             string tempPrefix = Path.GetTempPath().TrimEnd('\\') + "\\dsh-uninstaller-";
             if (string.IsNullOrEmpty(exeDir) || !exeDir.StartsWith(tempPrefix, StringComparison.OrdinalIgnoreCase)) return;
-            if (string.IsNullOrEmpty(DshInstallDir)) return;
-            string prevLog = Path.Combine(DshInstallDir, "Log.log");
-            if (!File.Exists(prevLog)) return;
-            if (prevLog.Equals(LogFilePath, StringComparison.OrdinalIgnoreCase)) return;
-            string text = File.ReadAllText(prevLog);
-            File.AppendAllText(LogFilePath, Environment.NewLine + "----- Log from the process that ran inside the install directory -----" + Environment.NewLine + text);
-            Log("Merged previous log from install directory: " + prevLog);
+            if (DshInstallDirs.Count == 0) return;
+            foreach (string installDir in DshInstallDirs)
+            {
+                string prevLog = Path.Combine(installDir, "Log.log");
+                if (!File.Exists(prevLog)) continue;
+                if (prevLog.Equals(LogFilePath, StringComparison.OrdinalIgnoreCase)) continue;
+                string text = File.ReadAllText(prevLog);
+                File.AppendAllText(LogFilePath, Environment.NewLine + "----- Log from the process that ran inside the install directory -----" + Environment.NewLine + text);
+                Log("Merged previous log from install directory: " + prevLog);
+                return;
+            }
         }
         catch
         {
@@ -1011,6 +1024,8 @@ partial class DSHDesktopUninstaller
             if (Directory.Exists(manualInstallDir) && IsSafeInstallDir(manualInstallDir) &&
                 (HasDshExecutable(manualInstallDir) || HasDshSignature(manualInstallDir)))
             {
+                DshInstallDirs.Clear();
+                DshInstallDirs.Add(manualInstallDir);
                 DshInstallDir = manualInstallDir;
                 Log("Uninstall mode: manual install dir -> " + manualInstallDir);
                 // Re-derive the variant label and targeted cleanup lists so the
@@ -1018,7 +1033,9 @@ partial class DSHDesktopUninstaller
                 string manualLabel = ResolveLabelFromPath(DshInstallDir);
                 if (string.IsNullOrEmpty(manualLabel)) manualLabel = "未知";
                 DetectedVariantLabel = manualLabel;
-                ApplyVariantProfile();
+                DetectedVariantLabels.Clear();
+                DetectedVariantLabels.Add(manualLabel);
+                  VariantProfileApplied = ApplyVariantProfile();
                 Log("Variant label updated from manual install dir: " + DetectedVariantLabel);
             }
             else
@@ -1029,11 +1046,20 @@ partial class DSHDesktopUninstaller
 
         if (useDetectedRunningDsh)
         {
-            string runningDir = FindRunningDshInstallDir();
-            if (!string.IsNullOrEmpty(runningDir))
+            List<string> runningDirs = FindRunningDshInstallDirs();
+            if (runningDirs.Count > 0)
             {
-                DshInstallDir = runningDir;
-                Log("Uninstall mode: detect running DSH -> " + runningDir);
+                DshInstallDirs.Clear();
+                DshInstallDirs.AddRange(runningDirs);
+                DshInstallDir = DshInstallDirs[0];
+                Log("Uninstall mode: detect running DSH -> " + string.Join(" | ", DshInstallDirs.ToArray()));
+                string runLabel = ResolveLabelFromPath(DshInstallDir);
+                if (string.IsNullOrEmpty(runLabel)) runLabel = "\u672a\u77e5";
+                DetectedVariantLabel = runLabel;
+                DetectedVariantLabels.Clear();
+                DetectedVariantLabels.Add(runLabel);
+                  VariantProfileApplied = ApplyVariantProfile();
+                Log("Variant label updated from running install dir: " + runLabel);
             }
             else
             {
@@ -1047,22 +1073,35 @@ partial class DSHDesktopUninstaller
 
         Log("===== DSH Desktop / DeepSeek Harness Complete Uninstaller =====");
         Log("Retention: " + RetentionSummary());
-        Log("Install dir: " + (string.IsNullOrEmpty(DshInstallDir) ? "(not detected)" : DshInstallDir));
-        if (string.IsNullOrEmpty(DshInstallDir))
+        if (DshInstallDirs.Count > 0)
         {
+            Log("Install dirs (" + DshInstallDirs.Count + "): " + string.Join(" | ", DshInstallDirs.ToArray()));
+        }
+        else
+        {
+            Log("Install dir: (not detected)");
             Log("  WARNING: no DSH install directory detected; only user data and known extra directories will be cleaned.");
         }
         Log("");
 
         PreserveLogCopyIfNeeded();
         KillDSHProcesses();
-        Log("[2/9] Deleting install directory...");
-        DeleteDirectoryWithRetry(DshInstallDir);
+        Log("[2/9] Deleting install directories...");
+        foreach (string dir in DshInstallDirs)
+        {
+            if (string.IsNullOrEmpty(dir)) continue;
+            DeleteDirectoryWithRetry(dir);
+        }
         Log("[3/9] Deleting known extra directories...");
         foreach (string dir in GetKnownExtraDirectories())
         {
             if (string.IsNullOrEmpty(dir)) continue;
-            if (!string.IsNullOrEmpty(DshInstallDir) && dir.Equals(DshInstallDir, StringComparison.OrdinalIgnoreCase)) continue;
+            bool isInstall = false;
+            foreach (string idir in DshInstallDirs)
+            {
+                if (!string.IsNullOrEmpty(idir) && dir.Equals(idir, StringComparison.OrdinalIgnoreCase)) { isInstall = true; break; }
+            }
+            if (isInstall) continue;
             if (Directory.Exists(dir))
             {
                 DeleteDirectoryWithRetry(dir);
@@ -1101,7 +1140,14 @@ partial class DSHDesktopUninstaller
     static void RunResidualScan()
     {
         Log("  Residual scan:");
-        Log("    Install dir: " + ResidualStatus(DshInstallDir));
+        if (DshInstallDirs.Count == 0)
+        {
+            Log("    Install dir: not applicable (not detected)");
+        }
+        foreach (string dir in DshInstallDirs)
+        {
+            Log("    Install dir: " + ResidualStatus(dir));
+        }
         Log("    User data:   " + ResidualStatus(DshHome));
         Log("    Runtime:     " + ResidualStatus(DshRuntime));
     }
@@ -1378,6 +1424,27 @@ partial class DSHDesktopUninstaller
         {
             Log("Command failed: " + fileName + " " + arguments + " -> " + ex.Message);
             return -1;
+        }
+    }
+
+
+    static void ShowCompletionPopup()
+    {
+        try
+        {
+            string msg = "DSH / DeepSeek Harness \u684c\u9762\u7aef\u5378\u8f7d\u5df2\u5b8c\u6210\u3002\r\n\r\n\u4fdd\u7559\uff1a" + RetentionSummary();
+            if (failureCount > 0)
+            {
+                msg += "\r\n\r\n\u6709 " + failureCount + " \u4e2a\u9879\u76ee\u5220\u9664\u5931\u8d25\uff0c\u8bf7\u67e5\u770b\u65e5\u5fd7\uff1a\r\n" + LogService.MainPath;
+            }
+            else
+            {
+                msg += "\r\n\r\n\u65e5\u5fd7\uff1a" + LogService.MainPath;
+            }
+            MessageBox.Show(msg, "\u5378\u8f7d\u5b8c\u6210", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch
+        {
         }
     }
 

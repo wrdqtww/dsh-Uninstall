@@ -1,4 +1,4 @@
-DSH Desktop 完全卸载程序 - 使用说明
+﻿DSH Desktop 完全卸载程序 - 使用说明
 ========================================
 
 文件目录:
@@ -31,7 +31,7 @@ DSH Desktop 完全卸载程序 - 使用说明
 卸载时会执行:
   1. 结束所有 DSH 相关进程（安装目录内进程 / DSH Desktop.exe / dsh-desktop.exe /
      DeepSeek Harness Desktop.exe / deepseek-harness.exe / DSHDesktop.exe / dshdesktop.exe / deepseek-harness-desktop.exe / DSH-Desktop.exe / DeepSeek-runtime-Desktop.exe / dsh-desk.exe / dsh-studio.exe / dsh-desktop-hub.exe / dsh-cockpit.exe / dsh-client.exe / dsh-web-desktop.exe / dsh-electron-shell.exe / Deepseek Harness EAC.exe / DSH Desktop Hub.exe / DSH-Web.exe / DshCockpit.exe / DSH Desk.exe）
-  2. 删除检测到的 DSH 程序目录（注册表 + 常见安装位置 + 已知变体目录）
+   2. 删除所有检测到的 DSH 程序目录（注册表全部命中项 + 常见安装位置全部命中项 + 已知变体目录全部命中项，去重后逐一删除）
   3. 删除 %LOCALAPPDATA% 下已知更新器/程序目录（dsh-desktop-updater、dsh-launcher-updater、dsh-updater 等）
   4. 删除 %APPDATA% 下 DSH Desktop / dsh-desktop / DeepSeek Harness 等缓存/日志/数据
   5. 删除 %LOCALAPPDATA%\dsh-edge-app（Edge 简洁版）与 npm 全局 @deepseek-ai/dsh（如存在）
@@ -97,6 +97,7 @@ DSH Desktop 完全卸载程序 - 使用说明
     - 第三方：其他 DSH 仓库，显示 第三方 仓库路径，例如 myYangyunfan/dsh_desktop、AmazingBoyCrazy/dsh_desktop
     - 未知：识别不出来时显示 未知
     - 同时识别到多个仓库时，会在窗口最上方垂直排列显示所有识别结果；此时清理目标不再收窄为单一仓库，而是使用全量通用列表，避免漏删其他 DSH 变体。
+     - 多个安装目录会全部收集并逐一删除；残留扫描也会逐个确认每个安装目录的删除结果。
     - 未知/通用情况下仍会使用通用卸载逻辑
   窗口顶部先选择“卸载模式”：
     - 程序识别卸载：识别当前运行的 DSH 并卸载其目录；未检测到运行中 DSH 时自动回退默认。
@@ -117,7 +118,7 @@ DSH Desktop 完全卸载程序 - 使用说明
      （安装目录、附加目录（所有附加目录共用一个“附加目录:”标题）、用户数据、运行时、注册表/PATH/快捷方式/Run/临时目录）；
      点击“确定”后，二次确认窗口不会消失，而是直接切换为“DSH 卸载进度”窗口：顶部显示当前正在执行的命令操作，中间为进度条，下方为实时日志反馈台。
      点击“取消”则退出，不执行任何卸载操作。
-    点击“确定”才开始卸载，点击“取消”则退出。卸载过程中会显示“DSH 卸载进度”窗口，实时输出日志。
+     点击“确定”才开始卸载，点击“取消”则退出。卸载过程中会显示“DSH 卸载进度”窗口，实时输出日志。卸载完成后会弹出“卸载完成”提示框，显示保留项和日志路径（静默模式 /S 不弹窗）。
 静默参数:
   Uninstall_DSH_Desktop.exe /S
 Uninstall_DSH_Desktop.exe /S /DetectRunning

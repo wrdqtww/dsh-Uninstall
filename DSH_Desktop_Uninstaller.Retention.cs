@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -288,6 +288,20 @@ partial class DSHDesktopUninstaller
         return !string.IsNullOrEmpty(name) && name.StartsWith(".credentials.yaml", StringComparison.OrdinalIgnoreCase);
     }
 
+    static bool IsDotDshRoot(string dir)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(dir)) return false;
+            string name = Path.GetFileName(Path.GetFullPath(dir));
+            return name.Equals(".dsh", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     static bool IsSafeDshHome(string dir)
     {
         try
@@ -425,8 +439,17 @@ partial class DSHDesktopUninstaller
 
         if (!keepPresets && !keepChat && !keepOther && !keepAppSettings && !keepModelConfig && !keepSkillsData)
         {
-            // Nothing is being retained under .dsh: remove the data root too.
-            DeleteDirectoryWithRetry(DshHome);
+            if (IsDotDshRoot(DshHome))
+            {
+                // Default user-data root: remove the .dsh directory itself.
+                DeleteDirectoryWithRetry(DshHome);
+            }
+            else
+            {
+                // Custom DSH_HOME directory: only DSH content was removed above;
+                // never delete a custom-named root that may contain other files.
+                Log("  Keeping DSH_HOME root itself (custom directory name); only DSH content was removed: " + DshHome);
+            }
         }
     }
 

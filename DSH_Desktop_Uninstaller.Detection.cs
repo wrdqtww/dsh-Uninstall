@@ -13,53 +13,66 @@ partial class DSHDesktopUninstaller
 #region Install Detection
     static string ResolveDshInstallDir()
     {
-        // Prefer a DSH Desktop uninstall entry: this works across versions,
-        // install locations, drive letters and both HKLM/HKCU 32/64-bit views.
-        string registryDir = FindDshInstallDirFromRegistry();
-        if (!string.IsNullOrEmpty(registryDir))
+        List<string> dirs = ResolveDshInstallDirs();
+        return dirs.Count > 0 ? dirs[0] : string.Empty;
+    }
+
+    static List<string> ResolveDshInstallDirs()
+    {
+        List<string> dirs = new List<string>();
+
+        // 1) Registry uninstall entries: collect every DSH-related install dir.
+        foreach (string dir in FindDshInstallDirsFromRegistry())
         {
-            return registryDir;
+            AddInstallDir(dirs, dir);
         }
 
-        // When a known variant repo was recognized, prefer its published
-        // install path before falling back to generic scanning.
-        string variantDir = FindDshInstallDirInVariantLocations();
-        if (!string.IsNullOrEmpty(variantDir))
+        // 2) Known variant published install paths.
+        foreach (string dir in FindDshInstallDirsInVariantLocations())
         {
-            return variantDir;
+            AddInstallDir(dirs, dir);
         }
 
-        // Fallback: if this uninstaller is copied into the DSH Desktop install
-        // folder, use its own directory.
+        // 3) The uninstaller's own directory when it sits inside an install.
         try
         {
             string currentDir = Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
             if (!string.IsNullOrEmpty(currentDir) && (HasDshExecutable(currentDir) || HasDshSignature(currentDir)))
             {
-                return currentDir;
+                AddInstallDir(dirs, currentDir);
             }
         }
         catch
         {
         }
 
-        // Fallback: scan common per-user / per-machine install roots. This
-        // covers future installers that do not write an uninstall key yet.
-        string fallback = FindDshInstallDirInKnownLocations();
-        if (!string.IsNullOrEmpty(fallback))
+        // 4) Generic scan of common install roots.
+        foreach (string dir in FindDshInstallDirsInKnownLocations())
         {
-            return fallback;
+            AddInstallDir(dirs, dir);
         }
 
-        // No hardcoded fallback: if the install folder cannot be detected,
-        // skip deleting it instead of risking the wrong path on another PC.
-        return string.Empty;
+        return dirs;
     }
 
-    static string FindDshInstallDirInVariantLocations()
+    static void AddInstallDir(List<string> dirs, string dir)
     {
+        if (string.IsNullOrEmpty(dir)) return;
+        string full;
+        try { full = Path.GetFullPath(dir).TrimEnd('\\'); }
+        catch { return; }
+        if (string.IsNullOrEmpty(full)) return;
+        foreach (string existing in dirs)
+        {
+            if (existing.Equals(full, StringComparison.OrdinalIgnoreCase)) return;
+        }
+        dirs.Add(full);
+    }
+    static List<string> FindDshInstallDirsInVariantLocations()
+    {
+        List<string> dirs = new List<string>();
         string[] names = KnownInstallDirNames;
-        if (names == null || names.Length == 0) return string.Empty;
+        if (names == null || names.Length == 0) return dirs;
 
         List<string> roots = new List<string>();
         try { roots.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs")); } catch { }
@@ -78,13 +91,13 @@ partial class DSHDesktopUninstaller
                 if (Directory.Exists(dir) && (HasDshExecutable(dir) || HasDshSignature(dir)))
                 {
                     Log("Using variant install path: " + dir);
-                    return dir;
+                    AddInstallDir(dirs, dir);
                 }
             }
         }
-        return string.Empty;
+        return dirs;
     }
-    static string FindDshInstallDirFromRegistry()
+    static List<string> FindDshInstallDirsFromRegistry()
     {
         List<string> existingCandidates = new List<string>();
         List<string> knownExeCandidates = new List<string>();
@@ -124,11 +137,11 @@ partial class DSHDesktopUninstaller
                                 if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) continue;
                                 if (HasDshExecutable(dir) || HasDshSignature(dir))
                                 {
-                                    knownExeCandidates.Add(dir);
+                                    AddInstallDir(knownExeCandidates, dir);
                                 }
                                 else
                                 {
-                                    existingCandidates.Add(dir);
+                                    AddInstallDir(existingCandidates, dir);
                                 }
                             }
                         }
@@ -140,17 +153,11 @@ partial class DSHDesktopUninstaller
             }
         }
 
-        if (knownExeCandidates.Count > 0)
-        {
-            return knownExeCandidates[0];
-        }
-        if (existingCandidates.Count > 0)
-        {
-            return existingCandidates[0];
-        }
-        return string.Empty;
+        List<string> result = new List<string>();
+        foreach (string dir in knownExeCandidates) AddInstallDir(result, dir);
+        foreach (string dir in existingCandidates) AddInstallDir(result, dir);
+        return result;
     }
-
     static string ResolveInstallDirFromRegistryEntry(string displayIcon, string uninstallString, string quietUninstallString, string installLocation, string bundleCachePath)
     {
         // Prefer InstallLocation when the installer actually filled it.
@@ -215,8 +222,9 @@ partial class DSHDesktopUninstaller
         return dir;
     }
 
-    static string FindDshInstallDirInKnownLocations()
+    static List<string> FindDshInstallDirsInKnownLocations()
     {
+        List<string> dirs = new List<string>();
         List<string> roots = new List<string>();
         try { roots.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs")); } catch { }
         try { roots.Add(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)); } catch { }
@@ -232,7 +240,7 @@ partial class DSHDesktopUninstaller
                     string name = Path.GetFileName(dir);
                     if (IsDshRelatedName(name) && (HasDshExecutable(dir) || HasDshSignature(dir)))
                     {
-                        return dir;
+                        AddInstallDir(dirs, dir);
                     }
                 }
             }
@@ -259,15 +267,21 @@ partial class DSHDesktopUninstaller
         {
             if (Directory.Exists(dir) && (HasDshExecutable(dir) || HasDshSignature(dir)))
             {
-                return dir;
+                AddInstallDir(dirs, dir);
             }
         }
 
-        return string.Empty;
+        return dirs;
     }
-
     static string FindRunningDshInstallDir()
     {
+        List<string> dirs = FindRunningDshInstallDirs();
+        return dirs.Count > 0 ? dirs[0] : string.Empty;
+    }
+
+    static List<string> FindRunningDshInstallDirs()
+    {
+        List<string> dirs = new List<string>();
         foreach (Process p in Process.GetProcesses())
         {
             try
@@ -295,14 +309,14 @@ partial class DSHDesktopUninstaller
                 string dir = Path.GetDirectoryName(path);
                 if (!string.IsNullOrEmpty(dir) && (HasDshExecutable(dir) || HasDshSignature(dir)))
                 {
-                    return dir;
+                    AddInstallDir(dirs, dir);
                 }
             }
             catch
             {
             }
         }
-        return string.Empty;
+        return dirs;
     }
 
     static string ResolveVariantLabel()
@@ -324,14 +338,14 @@ partial class DSHDesktopUninstaller
         List<string> labels = new List<string>();
         foreach (string label in ResolveVariantLabelsFromRegistry())
         {
-            if (!string.IsNullOrWhiteSpace(label) && !labels.Contains(label)) labels.Add(label);
+            if (!string.IsNullOrWhiteSpace(label) && !labels.Contains(label, StringComparer.OrdinalIgnoreCase)) labels.Add(label);
         }
 
         string dir = DshInstallDir;
         if (string.IsNullOrEmpty(dir)) dir = DetectedRunningDshDir;
 
         string dirLabel = ResolveLabelFromPath(dir);
-        if (!string.IsNullOrWhiteSpace(dirLabel) && !labels.Contains(dirLabel)) labels.Add(dirLabel);
+        if (!string.IsNullOrWhiteSpace(dirLabel) && !labels.Contains(dirLabel, StringComparer.OrdinalIgnoreCase)) labels.Add(dirLabel);
 
         if (labels.Count == 0) labels.Add("\u672a\u77e5");
         return labels;
@@ -403,7 +417,7 @@ partial class DSHDesktopUninstaller
 
                                 string pathForHeuristic = (installLocation + "|" + displayIcon + "|" + uninstallString + "|" + quietUninstallString + "|" + bundleCachePath);
                                 string label = ResolveVariantLabelFromRegistryEntry(name, displayName, publisher, urlInfoAbout, pathForHeuristic);
-                                if (!string.IsNullOrEmpty(label) && !labels.Contains(label)) labels.Add(label);
+                                if (!string.IsNullOrEmpty(label) && !labels.Contains(label, StringComparer.OrdinalIgnoreCase)) labels.Add(label);
                             }
                         }
                     }

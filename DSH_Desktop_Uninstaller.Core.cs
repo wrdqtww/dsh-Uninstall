@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 
 // Data-driven helpers shared by the DSHDesktopUninstaller partial class.
@@ -60,6 +61,29 @@ public static class VariantCatalog
         new VariantProfile("hastings0714", "第三方 hastings0714/dsh-client",  new string[0], new string[0], new[]{"dsh-client.exe"}, new[]{"dsh-client"}, new[]{"dsh-client.lnk"}, new string[0], new[]{"dsh-client"}, new[]{"dsh-client"}),
     };
 
+    /// <summary>Union of every AppId declared by any known profile.</summary>
+    public static readonly string[] AllAppIds = BuildAllAppIds();
+
+    static string[] BuildAllAppIds()
+    {
+        List<string> ids = new List<string>();
+        foreach (VariantProfile p in Profiles)
+        {
+            if (p.AppIds == null) continue;
+            foreach (string id in p.AppIds)
+            {
+                if (string.IsNullOrEmpty(id)) continue;
+                bool seen = false;
+                foreach (string existing in ids)
+                {
+                    if (existing.Equals(id, StringComparison.OrdinalIgnoreCase)) { seen = true; break; }
+                }
+                if (!seen) ids.Add(id);
+            }
+        }
+        return ids.ToArray();
+    }
+
     /// <summary>Returns the first profile whose repo token is contained in the given repo string, or null.</summary>
     public static VariantProfile Find(string repo)
     {
@@ -99,7 +123,7 @@ public static class NameMatcher
     {
         "DSH Desktop", "DSH桌面", "dsh-desktop", "DeepSeek Harness Desktop", "DeepSeek Harness",
         "deepseek-harness", "DSHDesktop", "dshdesktop", "dsh-edge-app", "DSH-Desktop",
-        "DeepSeek-runtime-Desktop", "dsh-desk", "dsh-studio", "dsh-desktop-hub",
+        "DeepSeek-harness-Desktop", "dsh-desk", "dsh-studio", "dsh-desktop-hub",
         "dsh-cockpit", "dsh-client", "dsh-web-desktop", "dsh-electron-shell",
         "Deepseek Harness EAC", "DSH Desktop Hub", "DSH-Web", "DshCockpit", "DSH Desk", "dsh desk"
     };
@@ -108,7 +132,7 @@ public static class NameMatcher
     {
         "DSH Desktop", "dsh-desktop", "DeepSeek Harness Desktop", "DeepSeek Harness",
         "deepseek-harness", "DSHDesktop", "dshdesktop", "dsh-edge-app", "DSH-Desktop",
-        "DeepSeek-runtime-Desktop", "dsh-desk", "dsh-studio", "dsh-desktop-hub",
+        "DeepSeek-harness-Desktop", "dsh-desk", "dsh-studio", "dsh-desktop-hub",
         "dsh-cockpit", "dsh-client", "dsh-web-desktop", "dsh-electron-shell",
         "Deepseek Harness EAC", "DSH Desktop Hub", "DSH-Web", "DshCockpit", "DSH Desk", "dsh desk", "dsh-runtime"
     };
