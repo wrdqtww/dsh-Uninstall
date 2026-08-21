@@ -1,61 +1,125 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Reflection;
-using System.Runtime.InteropServices;
-using System.Security.Principal;
 using System.Text;
-using System.Threading;
-using System.Management;
 using System.Drawing;
 using System.Windows.Forms;
 using System.Windows.Forms.VisualStyles;
-using Microsoft.Win32;
 
 partial class DSHDesktopUninstaller
 {
 
 #region GUI (RetentionForm)
-    private class ProgressForm : Form
+    private class ConfirmForm : Form
     {
+        private Label lblCurrentOp;
+        private ProgressBar progress;
         private TextBox txtLog;
 
-        public ProgressForm()
+        public ConfirmForm(string message)
         {
-            Text = "DSH 卸载进度";
+            Text = "\u786e\u8ba4\u5378\u8f7d";
             StartPosition = FormStartPosition.CenterScreen;
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox = false;
+            MinimizeBox = false;
+            ShowInTaskbar = false;
+            ClientSize = new Size(580, 420);
+            Font = new Font("Microsoft YaHei UI", 9F);
+
+            TextBox txt = new TextBox();
+            txt.Multiline = true;
+            txt.ReadOnly = true;
+            txt.ScrollBars = ScrollBars.Both;
+            txt.WordWrap = true;
+            txt.Text = message;
+            txt.SetBounds(12, 12, 556, 336);
+            txt.SelectionStart = 0;
+            Controls.Add(txt);
+
+            Button btnOk = new Button();
+            btnOk.Text = "\u786e\u5b9a";
+            btnOk.DialogResult = DialogResult.OK;
+            btnOk.SetBounds(350, 360, 100, 30);
+            Controls.Add(btnOk);
+
+            Button btnCancel = new Button();
+            btnCancel.Text = "\u53d6\u6d88";
+            btnCancel.DialogResult = DialogResult.Cancel;
+            btnCancel.SetBounds(458, 360, 100, 30);
+            Controls.Add(btnCancel);
+
+            AcceptButton = btnOk;
+            CancelButton = btnCancel;
+        }
+
+        public void SwitchToProgress()
+        {
+            Controls.Clear();
+            Text = "DSH \u5378\u8f7d\u8fdb\u5ea6";
             FormBorderStyle = FormBorderStyle.Sizable;
             MaximizeBox = false;
             MinimizeBox = false;
             ShowInTaskbar = true;
-            ClientSize = new Size(560, 320);
-            Font = new Font("Microsoft YaHei UI", 9F);
+            ClientSize = new Size(580, 420);
+
+            lblCurrentOp = new Label();
+            lblCurrentOp.Text = "\u5f53\u524d\u64cd\u4f5c\uff1a\u51c6\u5907\u5f00\u59cb...";
+            lblCurrentOp.AutoSize = false;
+            lblCurrentOp.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            lblCurrentOp.SetBounds(12, 12, 556, 24);
+            Controls.Add(lblCurrentOp);
+
+            progress = new ProgressBar();
+            progress.Style = ProgressBarStyle.Marquee;
+            progress.MarqueeAnimationSpeed = 30;
+            progress.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            progress.SetBounds(12, 42, 556, 20);
+            Controls.Add(progress);
 
             txtLog = new TextBox();
             txtLog.Multiline = true;
-            txtLog.ScrollBars = ScrollBars.Both;
             txtLog.ReadOnly = true;
+            txtLog.ScrollBars = ScrollBars.Both;
             txtLog.WordWrap = false;
-            txtLog.Dock = DockStyle.Fill;
+            txtLog.BackColor = System.Drawing.Color.Black;
+            txtLog.ForeColor = System.Drawing.Color.Lime;
+            txtLog.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            txtLog.SetBounds(12, 70, 556, 336);
             Controls.Add(txtLog);
+        }
+
+        public void SetCurrentOp(string op)
+        {
+            try
+            {
+                if (lblCurrentOp != null) lblCurrentOp.Text = "\u5f53\u524d\u64cd\u4f5c\uff1a" + op;
+            }
+            catch
+            {
+            }
         }
 
         public void Append(string message)
         {
             try
             {
+                if (txtLog == null) return;
                 txtLog.AppendText(message + Environment.NewLine);
                 txtLog.SelectionStart = txtLog.TextLength;
                 txtLog.ScrollToCaret();
+                string t = message.Trim();
+                if (t.StartsWith("[") || t.StartsWith("Command:") || t.StartsWith("Command result:"))
+                {
+                    SetCurrentOp(t);
+                }
             }
             catch
             {
             }
         }
     }
-
     class RetentionForm : Form
     {
         private class PresetListItem
@@ -298,6 +362,67 @@ partial class DSHDesktopUninstaller
         private void SetAllSkillItems(bool isChecked) { SetAllItems(clbSkills, isChecked); }
         private void UpdateSkillParentState() { UpdateParentState(clbSkills, chkSkills, hasSkills, ref updatingSkillState, false); }
 
+        private void ToggleCheckState(object sender, EventArgs e)
+        {
+            GrayableCheckBox chk = sender as GrayableCheckBox;
+            if (chk == null) return;
+            chk.CheckState = chk.CheckState == CheckState.Checked ? CheckState.Unchecked : CheckState.Checked;
+        }
+
+        private void WireParentChecked(GrayableCheckBox chk, CheckedListBox clb, Func<bool> hasItems, Func<bool> getUpdating, Action<bool> setUpdating, bool autoCheckRuntime)
+        {
+            chk.Click += ToggleCheckState;
+            chk.CheckStateChanged += delegate
+            {
+                if (getUpdating()) return;
+                setUpdating(true);
+                try
+                {
+                    if (chk.CheckState == CheckState.Checked)
+                    {
+                        SetAllItems(clb, true);
+                        if (autoCheckRuntime) chkRuntime.Checked = true;
+                    }
+                    else if (chk.CheckState == CheckState.Unchecked)
+                    {
+                        SetAllItems(clb, false);
+                    }
+                    clb.Enabled = chk.CheckState != CheckState.Unchecked && hasItems();
+                }
+                finally
+                {
+                    setUpdating(false);
+                }
+            };
+        }
+
+        private void WireItemCheck(CheckedListBox clb, GrayableCheckBox chk, Func<bool> hasItems, Func<bool> getUpdating, Action<bool> setUpdating, bool autoCheckRuntime)
+        {
+            clb.ItemCheck += delegate(object sender, ItemCheckEventArgs e)
+            {
+                if (getUpdating()) return;
+                int total = clb.Items.Count;
+                if (total == 0) return;
+
+                int checkedCount = clb.CheckedItems.Count;
+                if (e.NewValue == CheckState.Checked) checkedCount++;
+                else if (e.NewValue == CheckState.Unchecked && clb.CheckedIndices.Contains(e.Index)) checkedCount--;
+
+                CheckState state;
+                if (checkedCount == 0) state = CheckState.Unchecked;
+                else if (checkedCount == total) state = CheckState.Checked;
+                else state = CheckState.Indeterminate;
+
+                if (chk.CheckState != state)
+                {
+                    setUpdating(true);
+                    try { chk.CheckState = state; }
+                    finally { setUpdating(false); }
+                }
+                if (autoCheckRuntime && chk.CheckState != CheckState.Unchecked) chkRuntime.Checked = true;
+                clb.Enabled = chk.CheckState != CheckState.Unchecked && hasItems();
+            };
+        }
         private void DrawCheckedListBoxItem(object sender, DrawItemEventArgs e, CheckedListBox list)
         {
             if (e.Index < 0) return;
@@ -463,27 +588,37 @@ partial class DSHDesktopUninstaller
             // displays (Option A — lightweight; avoids absolute-position drift).
             AutoScaleMode = AutoScaleMode.Dpi;
             AutoScaleDimensions = new SizeF(96F, 96F);
+            int variantCount = DSHDesktopUninstaller.DetectedVariantLabels.Count;
+            if (variantCount < 1) variantCount = 1;
+            int labelHeight = variantCount * 20;
+            int titleY = 10 + labelHeight + 6;
+            int descY = titleY + 36;
+            int modeY = descY + 54;
+            int grpY = modeY + 78;
+            int btnY = grpY + 390 + 6;
+            ClientSize = new Size(520, btnY + 30 + 20);
             Label lblCurrentDsh = new Label();
+
             lblCurrentDsh.Text = "当前DSH: " + DSHDesktopUninstaller.DetectedVariantLabel;
             lblCurrentDsh.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
             lblCurrentDsh.AutoSize = false;
-            lblCurrentDsh.AutoEllipsis = true;
-            lblCurrentDsh.SetBounds(22, 10, 476, 22);
+            lblCurrentDsh.AutoEllipsis = false;
+            lblCurrentDsh.SetBounds(22, 10, 476, labelHeight);
 
             Label lblTitle = new Label();
             lblTitle.Text = "确定要卸载 DSH / DeepSeek Harness 桌面端吗？";
             lblTitle.Font = new Font("Microsoft YaHei UI", 12F, FontStyle.Bold);
             lblTitle.AutoSize = false;
-            lblTitle.SetBounds(22, 38, 476, 30);
+            lblTitle.SetBounds(22, titleY, 476, 30);
 
             Label lblDesc = new Label();
             lblDesc.Text = "将删除程序、更新器、缓存、快捷方式、注册表和 DSH 用户数据。\r\n默认不保留用户数据，可在下方勾选需要保留的项目。";
             lblDesc.AutoSize = false;
-            lblDesc.SetBounds(22, 74, 476, 48);
+            lblDesc.SetBounds(22, descY, 476, 48);
 
             GroupBox grpMode = new GroupBox();
             grpMode.Text = "卸载模式";
-            grpMode.SetBounds(22, 128, 476, 72);
+            grpMode.SetBounds(22, modeY, 476, 72);
 
             rbDetectRunning = new RadioButton();
             string runningDir = DSHDesktopUninstaller.DetectedRunningDshDir;
@@ -503,7 +638,7 @@ partial class DSHDesktopUninstaller
 
             GroupBox grp = new GroupBox();
             grp.Text = "可选保留项";
-            grp.SetBounds(22, 206, 476, 390);
+            grp.SetBounds(22, grpY, 476, 390);
 
             Panel pnlOptions = new Panel();
             pnlOptions.SetBounds(8, 20, 458, 358);
@@ -514,35 +649,9 @@ partial class DSHDesktopUninstaller
             chkPresets.AutoCheck = false;
             chkPresets.Text = "保留预设（按名称保留）";
             chkPresets.SetBounds(18, 24, 440, 24);
-            chkPresets.Click += delegate
-            {
-                chkPresets.CheckState = chkPresets.CheckState == CheckState.Checked
-                    ? CheckState.Unchecked
-                    : CheckState.Checked;
-            };
-            chkPresets.CheckStateChanged += delegate
-            {
-                if (updatingPresetState) return;
-                updatingPresetState = true;
-                try
-                {
-                    if (chkPresets.CheckState == CheckState.Checked)
-                    {
-                        SetAllPresetItems(true);
-                    }
-                    else if (chkPresets.CheckState == CheckState.Unchecked)
-                    {
-                        SetAllPresetItems(false);
-                    }
-                    clbPresets.Enabled = chkPresets.CheckState != CheckState.Unchecked && hasPresets;
-                }
-                finally
-                {
-                    updatingPresetState = false;
-                }
-            };
 
-            clbPresets = new CheckedListBox();
+              clbPresets = new CheckedListBox();
+              WireParentChecked(chkPresets, clbPresets, () => hasPresets, () => updatingPresetState, v => updatingPresetState = v, false);
             clbPresets.SetBounds(38, 50, 420, 70);
             clbPresets.CheckOnClick = true;
             clbPresets.IntegralHeight = false;
@@ -551,52 +660,9 @@ partial class DSHDesktopUninstaller
             {
                 DrawCheckedListBoxItem(sender, e, clbPresets);
             };
-            clbPresets.ItemCheck += delegate(object sender, ItemCheckEventArgs e)
-            {
-                if (updatingPresetState) return;
-                int total = clbPresets.Items.Count;
-                if (total == 0) return;
+            WireItemCheck(clbPresets, chkPresets, () => hasPresets, () => updatingPresetState, v => updatingPresetState = v, false);
 
-                int checkedCount = clbPresets.CheckedItems.Count;
-                if (e.NewValue == CheckState.Checked)
-                {
-                    checkedCount++;
-                }
-                else if (e.NewValue == CheckState.Unchecked && clbPresets.CheckedIndices.Contains(e.Index))
-                {
-                    checkedCount--;
-                }
-
-                CheckState state;
-                if (checkedCount == 0)
-                {
-                    state = CheckState.Unchecked;
-                }
-                else if (checkedCount == total)
-                {
-                    state = CheckState.Checked;
-                }
-                else
-                {
-                    state = CheckState.Indeterminate;
-                }
-
-                if (chkPresets.CheckState != state)
-                {
-                    updatingPresetState = true;
-                    try
-                    {
-                        chkPresets.CheckState = state;
-                    }
-                    finally
-                    {
-                        updatingPresetState = false;
-                    }
-                }
-                clbPresets.Enabled = chkPresets.CheckState != CheckState.Unchecked && hasPresets;
-            };
-
-            List<PresetInfo> detected = DSHDesktopUninstaller.DetectAgentPresets();
+              List<PresetInfo> detected = DSHDesktopUninstaller.DetectAgentPresets();
             hasPresets = detected.Count > 0;
             if (detected.Count == 0)
             {
@@ -624,36 +690,9 @@ partial class DSHDesktopUninstaller
             chkPlugins.AutoCheck = false;
             chkPlugins.Text = "保留插件（按名称保留，自动保留运行时）";
             chkPlugins.SetBounds(18, 154, 440, 24);
-            chkPlugins.Click += delegate
-            {
-                chkPlugins.CheckState = chkPlugins.CheckState == CheckState.Checked
-                    ? CheckState.Unchecked
-                    : CheckState.Checked;
-            };
-            chkPlugins.CheckStateChanged += delegate
-            {
-                if (updatingPluginState) return;
-                updatingPluginState = true;
-                try
-                {
-                    if (chkPlugins.CheckState == CheckState.Checked)
-                    {
-                        SetAllPluginItems(true);
-                        chkRuntime.Checked = true;
-                    }
-                    else if (chkPlugins.CheckState == CheckState.Unchecked)
-                    {
-                        SetAllPluginItems(false);
-                    }
-                    clbPlugins.Enabled = chkPlugins.CheckState != CheckState.Unchecked && hasPlugins;
-                }
-                finally
-                {
-                    updatingPluginState = false;
-                }
-            };
 
-            clbPlugins = new CheckedListBox();
+              clbPlugins = new CheckedListBox();
+              WireParentChecked(chkPlugins, clbPlugins, () => hasPlugins, () => updatingPluginState, v => updatingPluginState = v, true);
             clbPlugins.SetBounds(38, 180, 420, 120);
             clbPlugins.CheckOnClick = true;
             clbPlugins.IntegralHeight = false;
@@ -663,56 +702,9 @@ partial class DSHDesktopUninstaller
             {
                 DrawCheckedListBoxItem(sender, e, clbPlugins);
             };
-            clbPlugins.ItemCheck += delegate(object sender, ItemCheckEventArgs e)
-            {
-                if (updatingPluginState) return;
-                int total = clbPlugins.Items.Count;
-                if (total == 0) return;
+            WireItemCheck(clbPlugins, chkPlugins, () => hasPlugins, () => updatingPluginState, v => updatingPluginState = v, true);
 
-                int checkedCount = clbPlugins.CheckedItems.Count;
-                if (e.NewValue == CheckState.Checked)
-                {
-                    checkedCount++;
-                }
-                else if (e.NewValue == CheckState.Unchecked && clbPlugins.CheckedIndices.Contains(e.Index))
-                {
-                    checkedCount--;
-                }
-
-                CheckState state;
-                if (checkedCount == 0)
-                {
-                    state = CheckState.Unchecked;
-                }
-                else if (checkedCount == total)
-                {
-                    state = CheckState.Checked;
-                }
-                else
-                {
-                    state = CheckState.Indeterminate;
-                }
-
-                if (chkPlugins.CheckState != state)
-                {
-                    updatingPluginState = true;
-                    try
-                    {
-                        chkPlugins.CheckState = state;
-                    }
-                    finally
-                    {
-                        updatingPluginState = false;
-                    }
-                }
-                if (chkPlugins.CheckState != CheckState.Unchecked)
-                {
-                    chkRuntime.Checked = true;
-                }
-                clbPlugins.Enabled = chkPlugins.CheckState != CheckState.Unchecked && hasPlugins;
-            };
-
-            List<PluginInfo> detectedPlugins = DSHDesktopUninstaller.DetectPlugins();
+              List<PluginInfo> detectedPlugins = DSHDesktopUninstaller.DetectPlugins();
             hasPlugins = detectedPlugins.Count > 0;
             if (detectedPlugins.Count == 0)
             {
@@ -733,35 +725,9 @@ partial class DSHDesktopUninstaller
             chkSkills.AutoCheck = false;
             chkSkills.Text = "保留 skills（按名称保留）";
             chkSkills.SetBounds(18, 310, 440, 24);
-            chkSkills.Click += delegate
-            {
-                chkSkills.CheckState = chkSkills.CheckState == CheckState.Checked
-                    ? CheckState.Unchecked
-                    : CheckState.Checked;
-            };
-            chkSkills.CheckStateChanged += delegate
-            {
-                if (updatingSkillState) return;
-                updatingSkillState = true;
-                try
-                {
-                    if (chkSkills.CheckState == CheckState.Checked)
-                    {
-                        SetAllSkillItems(true);
-                    }
-                    else if (chkSkills.CheckState == CheckState.Unchecked)
-                    {
-                        SetAllSkillItems(false);
-                    }
-                    clbSkills.Enabled = chkSkills.CheckState != CheckState.Unchecked && hasSkills;
-                }
-                finally
-                {
-                    updatingSkillState = false;
-                }
-            };
 
-            clbSkills = new CheckedListBox();
+              clbSkills = new CheckedListBox();
+              WireParentChecked(chkSkills, clbSkills, () => hasSkills, () => updatingSkillState, v => updatingSkillState = v, false);
             clbSkills.SetBounds(38, 336, 420, 90);
             clbSkills.CheckOnClick = true;
             clbSkills.IntegralHeight = false;
@@ -771,52 +737,9 @@ partial class DSHDesktopUninstaller
             {
                 DrawCheckedListBoxItem(sender, e, clbSkills);
             };
-            clbSkills.ItemCheck += delegate(object sender, ItemCheckEventArgs e)
-            {
-                if (updatingSkillState) return;
-                int total = clbSkills.Items.Count;
-                if (total == 0) return;
+            WireItemCheck(clbSkills, chkSkills, () => hasSkills, () => updatingSkillState, v => updatingSkillState = v, false);
 
-                int checkedCount = clbSkills.CheckedItems.Count;
-                if (e.NewValue == CheckState.Checked)
-                {
-                    checkedCount++;
-                }
-                else if (e.NewValue == CheckState.Unchecked && clbSkills.CheckedIndices.Contains(e.Index))
-                {
-                    checkedCount--;
-                }
-
-                CheckState state;
-                if (checkedCount == 0)
-                {
-                    state = CheckState.Unchecked;
-                }
-                else if (checkedCount == total)
-                {
-                    state = CheckState.Checked;
-                }
-                else
-                {
-                    state = CheckState.Indeterminate;
-                }
-
-                if (chkSkills.CheckState != state)
-                {
-                    updatingSkillState = true;
-                    try
-                    {
-                        chkSkills.CheckState = state;
-                    }
-                    finally
-                    {
-                        updatingSkillState = false;
-                    }
-                }
-                clbSkills.Enabled = chkSkills.CheckState != CheckState.Unchecked && hasSkills;
-            };
-
-            List<SkillInfo> detectedSkills = DSHDesktopUninstaller.DetectSkills();
+              List<SkillInfo> detectedSkills = DSHDesktopUninstaller.DetectSkills();
             hasSkills = detectedSkills.Count > 0;
             if (detectedSkills.Count == 0)
             {
@@ -865,12 +788,12 @@ partial class DSHDesktopUninstaller
             Button btnOk = new Button();
             btnOk.Text = "卸载";
             btnOk.DialogResult = DialogResult.OK;
-            btnOk.SetBounds(260, 596, 100, 30);
+            btnOk.SetBounds(260, btnY, 100, 30);
 
             Button btnCancel = new Button();
             btnCancel.Text = "取消";
             btnCancel.DialogResult = DialogResult.Cancel;
-            btnCancel.SetBounds(370, 596, 100, 30);
+            btnCancel.SetBounds(370, btnY, 100, 30);
 
             Controls.Add(lblCurrentDsh);
             Controls.Add(lblTitle);

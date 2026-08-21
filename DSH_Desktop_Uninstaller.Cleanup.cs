@@ -2,16 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
-using System.Security.Principal;
-using System.Text;
 using System.Threading;
-using System.Management;
-using System.Drawing;
-using System.Windows.Forms;
-using System.Windows.Forms.VisualStyles;
 using Microsoft.Win32;
 
 partial class DSHDesktopUninstaller
@@ -23,7 +16,7 @@ partial class DSHDesktopUninstaller
         Log("[1/9] Stopping DSH Desktop processes...");
 
         // First pass: try graceful close when a main window exists,
-        // otherwise terminate the process directly.
+        // otherwise terminate the process directly. Each attempt is logged.
         foreach (Process p in Process.GetProcesses())
         {
             try
@@ -32,22 +25,24 @@ partial class DSHDesktopUninstaller
                 {
                     if (p.MainWindowHandle != IntPtr.Zero)
                     {
-                        p.CloseMainWindow();
-                        Log("  Sent close to: " + p.ProcessName + " (PID " + p.Id + ")");
+                        bool accepted = p.CloseMainWindow();
+                        Log("  Graceful close sent (accepted=" + accepted + "): " + p.ProcessName + " (PID " + p.Id + ")");
                     }
                     else
                     {
                         p.Kill();
-                        Log("  Killed: " + p.ProcessName + " (PID " + p.Id + ")");
+                        Log("  Killed (no main window): " + p.ProcessName + " (PID " + p.Id + ")");
                     }
                 }
             }
-            catch
+            catch (Exception ex)
             {
+                Log("  Close/Kill attempt failed for process: " + ex.Message);
             }
         }
 
         // Wait up to 3 seconds for graceful shutdown, re-enumerating each time.
+        bool allExited = true;
         for (int i = 0; i < 10; i++)
         {
             bool anyAlive = false;
@@ -61,12 +56,22 @@ partial class DSHDesktopUninstaller
                         break;
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
+                    Log("  Process check failed during shutdown wait: " + ex.Message);
                 }
             }
             if (!anyAlive) break;
+            allExited = false;
             Thread.Sleep(300);
+        }
+        if (allExited)
+        {
+            Log("  All DSH processes exited gracefully.");
+        }
+        else
+        {
+            Log("  Graceful shutdown wait expired; force-killing remaining processes...");
         }
 
         // Second pass: force-kill any remaining DSH processes.
@@ -80,14 +85,14 @@ partial class DSHDesktopUninstaller
                     Log("  Force killed: " + p.ProcessName + " (PID " + p.Id + ")");
                 }
             }
-            catch
+            catch (Exception ex)
             {
+                Log("  Force kill failed for PID " + p.Id + ": " + ex.Message);
             }
         }
 
         // Final pass: use taskkill /F /T so Electron child-process trees are
         // removed as a whole (main process alone may leave renderer/gpu children).
-        // Try both image-name spellings; some processes report no .exe suffix.
         foreach (string name in KnownProcessNames)
         {
             RunTaskKill("/F /IM \"" + name + ".exe\" /T");
@@ -112,24 +117,11 @@ partial class DSHDesktopUninstaller
 
     static void RunTaskKill(string arguments)
     {
-        try
-        {
-            Log("  Executing: taskkill.exe " + arguments);
-            ProcessStartInfo psi = new ProcessStartInfo("taskkill.exe", arguments);
-            psi.UseShellExecute = false;
-            psi.CreateNoWindow = true;
-            using (Process p = Process.Start(psi))
-            {
-                p.WaitForExit(10000);
-            }
-        }
-        catch (Exception ex)
-        {
-            Log("  Failed to run taskkill " + arguments + ": " + ex.Message);
-        }
+        RunCommandAndLog("taskkill.exe", arguments, 10000);
     }
 
     static bool IsDshProcess(Process p)
+
     {
         try
         {
@@ -231,10 +223,14 @@ partial class DSHDesktopUninstaller
         Directory.Delete(path, false);
     }
 
-    static void DeleteFileIfExists(string file)
+    static void DeleteFileIfExists(string file, bool logMissing = false)
     {
         if (string.IsNullOrEmpty(file)) return;
-        if (!File.Exists(file)) return;
+        if (!File.Exists(file))
+        {
+            if (logMissing) Log("  Not found (skip): " + file);
+            return;
+        }
 
         for (int i = 0; i < 3; i++)
         {
@@ -261,18 +257,17 @@ partial class DSHDesktopUninstaller
     }
 #endregion
 
+
 #region Registry & PATH Cleanup
     static void DeleteRegistryKeys()
     {
-        Log("[2/9] Cleaning registry...");
+        Log("  Cleaning registry...");
 
         DeleteMatchingUninstallKeys(RegistryHive.LocalMachine, RegistryView.Registry64, "HKLM 64-bit");
         DeleteMatchingUninstallKeys(RegistryHive.LocalMachine, RegistryView.Registry32, "HKLM 32-bit");
         DeleteMatchingUninstallKeys(RegistryHive.CurrentUser, RegistryView.Registry64, "HKCU 64-bit");
         DeleteMatchingUninstallKeys(RegistryHive.CurrentUser, RegistryView.Registry32, "HKCU 32-bit");
 
-        // Legacy hardcoded key: harmless fallback if a future entry stops
-        // exposing usual values (DisplayName/DisplayIcon/UninstallString).
         try
         {
             using (RegistryKey key = Registry.LocalMachine.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall", true))
@@ -295,7 +290,7 @@ partial class DSHDesktopUninstaller
             DeleteRegSubKey(Registry.CurrentUser, @"Software\Microsoft\Windows\CurrentVersion\PushNotifications\Backup\" + appId, "HKCU push backup");
         }
 
-        // 历史遗留变量，某些旧版本 DSH 曾使用，卸载时清理
+        // Legacy variable used by some old DSH builds; clean it too.
         try
         {
             using (RegistryKey key = Registry.CurrentUser.OpenSubKey("Environment", true))
@@ -311,9 +306,59 @@ partial class DSHDesktopUninstaller
         {
             Log("  Failed to delete VIPSHOME: " + ex.Message);
         }
+
+        TryRemoveEnvVar(Registry.CurrentUser, "DSH_HOME");
+        TryRemoveEnvVar(Registry.LocalMachine, "DSH_HOME");
+    }
+
+    static string NormalizeEnvPath(string value)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+            string v = value.Trim().Trim('"').TrimEnd('\\');
+            return Path.GetFullPath(v);
+        }
+        catch
+        {
+            return value;
+        }
+    }
+        static void TryRemoveEnvVar(RegistryKey root, string name)
+    {
+        try
+        {
+            using (RegistryKey key = root.OpenSubKey("Environment", true))
+            {
+                if (key == null) return;
+                object raw = key.GetValue(name, null);
+                if (raw == null)
+                {
+                    Log("  Environment variable " + name + " not present in " + root.Name + ".");
+                    return;
+                }
+                string val = raw.ToString().Trim().Trim('"');
+                string normalizedVal = NormalizeEnvPath(val);
+                string normalizedHome = NormalizeEnvPath(DshHome);
+                if (!string.IsNullOrEmpty(normalizedHome) && normalizedVal.Equals(normalizedHome, StringComparison.OrdinalIgnoreCase))
+                {
+                    key.DeleteValue(name, false);
+                    Log("  Deleted " + name + " (matched DSH user data path): " + val);
+                }
+                else
+                {
+                    Log("  Kept " + name + " (value does not match DSH user data path): " + val);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log("  Failed to inspect/delete environment variable " + name + " in " + root.Name + ": " + ex.Message);
+        }
     }
 
     static bool IsKnownAppId(string id)
+
     {
         if (string.IsNullOrEmpty(id)) return false;
         foreach (string known in KnownAppIds)
@@ -403,14 +448,15 @@ partial class DSHDesktopUninstaller
         return IsDshRelatedName(valueName) || IsDshRelatedName(value) || IsDshRelatedPath(value);
     }
 
-    static void DeleteMatchingUninstallKeys(RegistryHive hive, RegistryView view, string label)
+    static int DeleteMatchingUninstallKeys(RegistryHive hive, RegistryView view, string label)
     {
+        int deleted = 0;
         try
         {
             using (RegistryKey baseKey = RegistryKey.OpenBaseKey(hive, view))
             using (RegistryKey uninstallRoot = baseKey.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall", true))
             {
-                if (uninstallRoot == null) return;
+                if (uninstallRoot == null) return 0;
                 string[] names = uninstallRoot.GetSubKeyNames();
                 foreach (string name in names)
                 {
@@ -423,8 +469,6 @@ partial class DSHDesktopUninstaller
                     string bundleCachePath = string.Empty;
                     string publisher = string.Empty;
                     string urlInfoAbout = string.Empty;
-                    // Each subkey is handled independently so a single
-                    // permission/read failure does not abort the whole scan.
                     try
                     {
                         using (RegistryKey sub = uninstallRoot.OpenSubKey(name))
@@ -464,6 +508,7 @@ partial class DSHDesktopUninstaller
                         {
                             uninstallRoot.DeleteSubKeyTree(name, false);
                             Log("  Deleted " + label + " uninstall key: " + Path.Combine(uninstallRoot.Name, name));
+                            deleted++;
                         }
                         catch (Exception ex)
                         {
@@ -472,15 +517,18 @@ partial class DSHDesktopUninstaller
                         }
                     }
                 }
+                Log("  Registry scan complete (" + label + "): scanned " + names.Length + " keys, deleted " + deleted + ".");
             }
         }
         catch (Exception ex)
         {
             Log("  Failed to scan " + label + " uninstall keys: " + ex.Message);
         }
+        return deleted;
     }
 
     static void DeleteRegSubKey(RegistryKey root, string subKey, string label)
+
     {
         try
         {
@@ -500,7 +548,7 @@ partial class DSHDesktopUninstaller
 
     static void CleanupMachinePath()
     {
-        Log("[3/9] Cleaning machine PATH...");
+        Log("  Cleaning machine PATH...");
         try
         {
             using (RegistryKey key = Registry.LocalMachine.OpenSubKey(MachineEnvKey, true))
@@ -518,7 +566,7 @@ partial class DSHDesktopUninstaller
     // may append to; this was previously not handled.
     static void CleanupUserPath()
     {
-        Log("[3b/9] Cleaning user PATH...");
+        Log("  Cleaning user PATH...");
         try
         {
             using (RegistryKey key = Registry.CurrentUser.OpenSubKey("Environment", true))
@@ -551,7 +599,8 @@ partial class DSHDesktopUninstaller
 
     static void CleanupRunKeys()
     {
-        Log("[3c/9] Cleaning Run/RunOnce startup entries...");
+        Log("  Cleaning Run/RunOnce startup entries...");
+        int removedCount = 0;
         RegistryHive[] hives = new RegistryHive[] { RegistryHive.LocalMachine, RegistryHive.CurrentUser };
         RegistryView[] views = new RegistryView[] { RegistryView.Registry64, RegistryView.Registry32 };
         string[] subKeys = new string[]
@@ -580,6 +629,7 @@ partial class DSHDesktopUninstaller
                                     {
                                         run.DeleteValue(valueName, false);
                                         Log("  Deleted startup entry (" + subKey + "): " + valueName + " = " + value);
+                                        removedCount++;
                                     }
                                 }
                                 catch (Exception ex)
@@ -597,6 +647,7 @@ partial class DSHDesktopUninstaller
                 }
             }
         }
+        Log("  Startup entry cleanup complete: deleted " + removedCount + " entries.");
     }
 
     static void CleanPathRegistryKey(RegistryKey key, string scope)
@@ -621,8 +672,6 @@ partial class DSHDesktopUninstaller
         }
         if (changed)
         {
-            // Preserve the original value kind. Some systems only accept
-            // REG_SZ for PATH and reject changing it to REG_EXPAND_SZ.
             RegistryValueKind kind = RegistryValueKind.String;
             try
             {
@@ -638,9 +687,14 @@ partial class DSHDesktopUninstaller
             }
             key.SetValue("Path", string.Join(";", kept.ToArray()), kind);
         }
+        else
+        {
+            Log("  No DSH entries found in " + scope + " PATH.");
+        }
     }
 
     static bool IsDshPathEntry(string trimmed)
+
     {
         if (string.IsNullOrEmpty(trimmed)) return false;
 
@@ -649,8 +703,14 @@ partial class DSHDesktopUninstaller
         string expanded = trimmed;
         try { expanded = Environment.ExpandEnvironmentVariables(trimmed); } catch { }
 
-        if (expanded.Equals(Path.Combine(DshRuntime, "node"), StringComparison.OrdinalIgnoreCase)) return true;
-        if (expanded.Equals(Path.Combine(DshHome, "bin"), StringComparison.OrdinalIgnoreCase)) return true;
+        if (!string.IsNullOrEmpty(DshRuntime))
+        {
+            if (expanded.Equals(Path.Combine(DshRuntime, "node"), StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        if (!string.IsNullOrEmpty(DshHome))
+        {
+            if (expanded.Equals(Path.Combine(DshHome, "bin"), StringComparison.OrdinalIgnoreCase)) return true;
+        }
         if (!string.IsNullOrEmpty(DshInstallDir) &&
             (expanded.StartsWith(DshInstallDir.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase) ||
              trimmed.StartsWith(DshInstallDir.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase))) return true;

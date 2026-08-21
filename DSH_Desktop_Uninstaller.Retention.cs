@@ -1,18 +1,8 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Reflection;
-using System.Runtime.InteropServices;
-using System.Security.Principal;
 using System.Text;
-using System.Threading;
-using System.Management;
-using System.Drawing;
-using System.Windows.Forms;
-using System.Windows.Forms.VisualStyles;
-using Microsoft.Win32;
 
 partial class DSHDesktopUninstaller
 {
@@ -221,7 +211,7 @@ partial class DSHDesktopUninstaller
     static void PreserveSelectedPlugins()
     {
         if (!keepPlugins || !keepRuntime) return;
-        Log("[4/9] Preserving selected DSH plugins...");
+        Log("  Preserving selected DSH plugins...");
 
         string webModules = Path.Combine(DshHome, @"profiles\web\node_modules");
         string destRoot = Path.Combine(DshRuntime, @"dsh\node_modules");
@@ -298,13 +288,49 @@ partial class DSHDesktopUninstaller
         return !string.IsNullOrEmpty(name) && name.StartsWith(".credentials.yaml", StringComparison.OrdinalIgnoreCase);
     }
 
+    static bool IsSafeDshHome(string dir)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(dir)) return false;
+            string full = Path.GetFullPath(dir);
+            string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            string windowsDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+            string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+            string programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+            if (full.Equals(userProfile, StringComparison.OrdinalIgnoreCase)
+                || full.Equals(windowsDir, StringComparison.OrdinalIgnoreCase)
+                || full.Equals(programFiles, StringComparison.OrdinalIgnoreCase)
+                || full.Equals(programFilesX86, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+            string name = Path.GetFileName(full);
+            if (name.Equals(".dsh", StringComparison.OrdinalIgnoreCase)) return true;
+            return Directory.Exists(Path.Combine(full, ".agent-presets"))
+                || Directory.Exists(Path.Combine(full, "sessions"))
+                || Directory.Exists(Path.Combine(full, "skills"));
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     static void CleanDshHome()
     {
-        Log("[5/9] Cleaning DSH user data...");
+        Log("  Cleaning DSH user data...");
 
         if (!Directory.Exists(DshHome))
         {
             Log("  DSH user data directory does not exist: " + DshHome);
+            return;
+        }
+
+        if (!IsSafeDshHome(DshHome))
+        {
+            Log("  ERROR: DSH user data path failed safety check; refusing to clean: " + DshHome);
+            failureCount++;
             return;
         }
 
@@ -471,7 +497,7 @@ partial class DSHDesktopUninstaller
 
     static void CleanupTemp()
     {
-        Log("[6/9] Cleaning temp dsh-* directories...");
+        Log("  Cleaning temp dsh-* directories...");
         string temp = Path.GetTempPath();
         try
         {
@@ -488,7 +514,7 @@ partial class DSHDesktopUninstaller
 
                 if (!nameMatch || !contentMatch)
                 {
-                    Log("  Skipping non-DSH temp: " + d);
+                    Log("  Skipping non-DSH temp: " + d + " (nameMatch=" + nameMatch + ", contentMatch=" + contentMatch + ")");
                     continue;
                 }
 

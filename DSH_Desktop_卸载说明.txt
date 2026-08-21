@@ -21,9 +21,11 @@ DSH Desktop 完全卸载程序 - 使用说明
     找不到匹配的已知版本时，使用通用卸载逻辑：按注册表卸载项、常见安装位置、进程名、快捷方式名
     自动扫描清理，不再依赖单一卸载 GUID / 安装路径。
     常见目录（如 %USERPROFILE%\DSH Desktop、%APPDATA%\DSH Desktop 等）在删除前会验证是否确为 DSH/Electron 安装或 Electron 用户数据目录，
+    路径中出现独立的 dsh 或 .dsh 目录段时也会纳入识别（如 %APPDATA%\dsh、%LOCALAPPDATA%\dsh），并同样经过验证后才删除。
     仅删除确认为 DSH 的目录，避免误删用户同名普通文件夹。
     若未检测到任何 DSH 安装目录，会明确提示“仅清理用户数据与已知额外目录”后再继续。
     识别到已知仓库时（如 myYangyunfan/dsh_desktop、Easyhoov/deepseek-harness-desktop-windows、steven-kid/deepseek-harness-desktop），
+     安装路径来自各仓库源码（package.json / electron-builder.yml / install.ps1 / tauri.conf.json）中写入的安装目录名列表；识别到仓库后优先按该仓库的安装路径查找，查不到再回退通用扫描。
     进程/快捷方式/程序目录、注册表卸载项、Run 启动项的清理目标会自动收窄为该仓库对应的名称；未识别到仓库时使用全量通用列表，避免漏删和误删其他 DSH 变体。
 
 卸载时会执行:
@@ -44,6 +46,9 @@ DSH Desktop 完全卸载程序 - 使用说明
    13. 清理 HKCU/HKLM Run 启动项中指向 DSH 的条目
    14. PATH 清理后广播 WM_SETTINGCHANGE，通知系统环境变量已变更
    15. 结束进程采用 关闭窗口 -> 强制结束 -> taskkill /F /T 三层策略，连同 Electron 子进程树一起结束
+   16. 清理 DSH_HOME 环境变量（仅当其值等于检测到的 .dsh 用户数据路径时；不匹配则保留并在日志说明）
+   17. 卸载结束后执行残留扫描，确认安装目录 / 用户数据 / 运行时是否已删除
+   18. 所有外部命令（taskkill、cmd）均记录命令行与退出码；每步删除记录成功 / 失败 / 重试 / 跳过原因
 
 可选保留项（默认全部删除）:
   - /KeepPresets
@@ -87,10 +92,11 @@ DSH Desktop 完全卸载程序 - 使用说明
           当前默认行为：按注册表卸载项、常见安装位置、当前程序目录顺序检测。
 
 
-  窗口最上方显示“当前DSH: 官方/第三方/未知”，用于提示本次识别到的桌面端类型：
+  窗口最上方显示“当前DSH:”，用于提示本次识别到的桌面端类型：
     - 官方：官方仓库 deepseek-ai/deepseek-harness，显示 官方 deepseek-ai/deepseek-harness
     - 第三方：其他 DSH 仓库，显示 第三方 仓库路径，例如 myYangyunfan/dsh_desktop、AmazingBoyCrazy/dsh_desktop
     - 未知：识别不出来时显示 未知
+    - 同时识别到多个仓库时，会在窗口最上方垂直排列显示所有识别结果；此时清理目标不再收窄为单一仓库，而是使用全量通用列表，避免漏删其他 DSH 变体。
     - 未知/通用情况下仍会使用通用卸载逻辑
   窗口顶部先选择“卸载模式”：
     - 程序识别卸载：识别当前运行的 DSH 并卸载其目录；未检测到运行中 DSH 时自动回退默认。
@@ -107,20 +113,23 @@ DSH Desktop 完全卸载程序 - 使用说明
     - 其他 .dsh 数据：保留预设、聊天、插件、应用设置、模型配置之外的其余 .dsh 数据
       （graph-memory/storages/super-injector/profiles 等）
     - .dsh-runtime：保留 DSH CLI 运行时
-    勾选完成后点击“卸载”，会再次弹出确认窗口，列出本次要保留的内容和要删除的目标
-    （安装目录、已知附加目录、用户数据、运行时、注册表/PATH/快捷方式/Run/临时目录）；
+     勾选完成后点击“卸载”，会再次弹出确认窗口，列出本次要保留的内容和要删除的目标
+     （安装目录、附加目录（所有附加目录共用一个“附加目录:”标题）、用户数据、运行时、注册表/PATH/快捷方式/Run/临时目录）；
+     点击“确定”后，二次确认窗口不会消失，而是直接切换为“DSH 卸载进度”窗口：顶部显示当前正在执行的命令操作，中间为进度条，下方为实时日志反馈台。
+     点击“取消”则退出，不执行任何卸载操作。
     点击“确定”才开始卸载，点击“取消”则退出。卸载过程中会显示“DSH 卸载进度”窗口，实时输出日志。
 静默参数:
   Uninstall_DSH_Desktop.exe /S
-  静默模式默认不保留任何用户数据；如需保留请附加可选保留参数，例如:
-  Uninstall_DSH_Desktop.exe /S /KeepPresets=agent-sc /KeepChatData /KeepAppSettings /KeepModelConfig /KeepPlugins=@dsh-external/dsh-vision
 Uninstall_DSH_Desktop.exe /S /DetectRunning
   静默模式下若发生清理失败（如文件被占用），退出码为非 0，便于脚本判断卸载是否完整。
 
       运行结束（含报错）后，会在卸载器 exe 所在目录生成 Log.log；日志会记录命令行、日志路径、执行的命令（taskkill/cmd）、每步删除/重试/报错。
+       日志会记录卸载器版本（1.2.1）、管理员状态、变体配置指纹、执行的命令与退出码（taskkill/cmd）、每步删除/重试/报错/跳过原因。
+       卸载完成后会提示建议重启或注销重新登录，以完全刷新 PATH 环境变量。
       如果 exe 所在目录或 /Log= 指定的日志文件会被本次卸载删除（例如 exe 放在安装目录内），
       会在删除前自动把日志副本保存到上一级目录（不可写时保存到桌面），
       并在日志中记录副本路径。也可用 /Log=<完整文件路径> 自行指定日志位置。
+    - 代码审查修复（v1.2.1 内部）：变体识别两阶段兜底；ApplyVariantProfile 重置并返回实际应用状态；步骤编号统一由 Run 输出；DSH_HOME 归一化比较；PATH 条目空值保护；UAC 取消改弹窗提示；npm @deepseek-ai/dsh 目录校验；CleanDshHome 拒绝不安全路径；日志主路径失败降级；VariantProfile.Label 单一数据源；RetentionOptions.Copy 深拷贝；GUI 三组勾选列表共用 WireParentChecked/WireItemCheck 减少重复。
 
 
 注意:

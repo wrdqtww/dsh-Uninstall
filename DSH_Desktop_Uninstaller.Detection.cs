@@ -4,14 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Runtime.InteropServices;
-using System.Security.Principal;
-using System.Text;
-using System.Threading;
 using System.Management;
-using System.Drawing;
-using System.Windows.Forms;
-using System.Windows.Forms.VisualStyles;
 using Microsoft.Win32;
 
 partial class DSHDesktopUninstaller
@@ -26,6 +19,14 @@ partial class DSHDesktopUninstaller
         if (!string.IsNullOrEmpty(registryDir))
         {
             return registryDir;
+        }
+
+        // When a known variant repo was recognized, prefer its published
+        // install path before falling back to generic scanning.
+        string variantDir = FindDshInstallDirInVariantLocations();
+        if (!string.IsNullOrEmpty(variantDir))
+        {
+            return variantDir;
         }
 
         // Fallback: if this uninstaller is copied into the DSH Desktop install
@@ -55,6 +56,34 @@ partial class DSHDesktopUninstaller
         return string.Empty;
     }
 
+    static string FindDshInstallDirInVariantLocations()
+    {
+        string[] names = KnownInstallDirNames;
+        if (names == null || names.Length == 0) return string.Empty;
+
+        List<string> roots = new List<string>();
+        try { roots.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs")); } catch { }
+        try { roots.Add(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)); } catch { }
+        try { roots.Add(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)); } catch { }
+        try { roots.Add(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86)); } catch { }
+        try { roots.Add(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)); } catch { }
+
+        foreach (string root in roots)
+        {
+            if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) continue;
+            foreach (string name in names)
+            {
+                if (string.IsNullOrEmpty(name)) continue;
+                string dir = Path.Combine(root, name);
+                if (Directory.Exists(dir) && (HasDshExecutable(dir) || HasDshSignature(dir)))
+                {
+                    Log("Using variant install path: " + dir);
+                    return dir;
+                }
+            }
+        }
+        return string.Empty;
+    }
     static string FindDshInstallDirFromRegistry()
     {
         List<string> existingCandidates = new List<string>();
@@ -290,6 +319,23 @@ partial class DSHDesktopUninstaller
         return "未知";
     }
 
+    static List<string> ResolveAllVariantLabels()
+    {
+        List<string> labels = new List<string>();
+        foreach (string label in ResolveVariantLabelsFromRegistry())
+        {
+            if (!string.IsNullOrWhiteSpace(label) && !labels.Contains(label)) labels.Add(label);
+        }
+
+        string dir = DshInstallDir;
+        if (string.IsNullOrEmpty(dir)) dir = DetectedRunningDshDir;
+
+        string dirLabel = ResolveLabelFromPath(dir);
+        if (!string.IsNullOrWhiteSpace(dirLabel) && !labels.Contains(dirLabel)) labels.Add(dirLabel);
+
+        if (labels.Count == 0) labels.Add("\u672a\u77e5");
+        return labels;
+    }
     static string ResolveLabelFromPath(string path)
     {
         if (string.IsNullOrWhiteSpace(path)) return string.Empty;
@@ -320,6 +366,13 @@ partial class DSHDesktopUninstaller
     }
     static string ResolveVariantLabelFromRegistry()
     {
+        List<string> labels = ResolveVariantLabelsFromRegistry();
+        return labels.Count > 0 ? labels[0] : string.Empty;
+    }
+
+    static List<string> ResolveVariantLabelsFromRegistry()
+    {
+        List<string> labels = new List<string>();
         RegistryHive[] hives = new RegistryHive[] { RegistryHive.LocalMachine, RegistryHive.CurrentUser };
         RegistryView[] views = new RegistryView[] { RegistryView.Registry64, RegistryView.Registry32 };
         foreach (RegistryHive hive in hives)
@@ -350,7 +403,7 @@ partial class DSHDesktopUninstaller
 
                                 string pathForHeuristic = (installLocation + "|" + displayIcon + "|" + uninstallString + "|" + quietUninstallString + "|" + bundleCachePath);
                                 string label = ResolveVariantLabelFromRegistryEntry(name, displayName, publisher, urlInfoAbout, pathForHeuristic);
-                                if (!string.IsNullOrEmpty(label)) return label;
+                                if (!string.IsNullOrEmpty(label) && !labels.Contains(label)) labels.Add(label);
                             }
                         }
                     }
@@ -360,9 +413,8 @@ partial class DSHDesktopUninstaller
                 }
             }
         }
-        return string.Empty;
+        return labels;
     }
-
     static string ResolveVariantLabelFromRegistryEntry(string keyName, string displayName, string publisher, string urlInfoAbout, string pathForHeuristic)
     {
         // 1) Display names that are unique to one repo win first (several repos
@@ -387,8 +439,8 @@ partial class DSHDesktopUninstaller
         //    EAC variant use; EAC was already handled above by display name.
         if (!string.IsNullOrWhiteSpace(keyName))
         {
-            string label;
-            if (KnownAppIdLabels.TryGetValue(keyName, out label)) return label;
+            VariantProfile p = VariantCatalog.FindByAppId(keyName);
+            if (p != null) return p.Label;
         }
 
         // 3) Publisher / URL hints.
@@ -535,12 +587,14 @@ partial class DSHDesktopUninstaller
 
     static bool IsDshRelatedName(string text)
     {
-        return NameMatcher.ContainsToken(text, NameMatcher.RelatedTokens);
+        if (NameMatcher.ContainsToken(text, NameMatcher.RelatedTokens)) return true;
+        return NameMatcher.EqualsToken(text, new string[] { "dsh", ".dsh" });
     }
 
     static bool IsDshRelatedPath(string path)
     {
-        return NameMatcher.ContainsToken(path, NameMatcher.PathTokens);
+        if (NameMatcher.ContainsToken(path, NameMatcher.PathTokens)) return true;
+        return NameMatcher.ContainsPathSegment(path, "dsh", ".dsh");
     }
 
     static string ParseExePathFromCommandLine(string commandLine)
