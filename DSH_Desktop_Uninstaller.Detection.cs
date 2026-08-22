@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Management;
+using System.Runtime.InteropServices;
 using Microsoft.Win32;
 
 partial class DSHDesktopUninstaller
@@ -42,10 +43,7 @@ partial class DSHDesktopUninstaller
                 AddInstallDir(dirs, currentDir);
             }
         }
-        catch (Exception)
-        {
-                Log("  Warning: non-fatal error ignored.");
-        }
+        catch (Exception ex) { Log("  Warning (ignored): " + ex.Message); }
 
         // 4) Generic scan of common install roots.
         foreach (string dir in FindDshInstallDirsInKnownLocations())
@@ -57,12 +55,14 @@ partial class DSHDesktopUninstaller
     }
 
     static void AddInstallDir(List<string> dirs, string dir)
-    {
+        {
         if (string.IsNullOrEmpty(dir)) return;
-        string full;
-        try { full = Path.GetFullPath(dir).TrimEnd('\\'); }
-        catch { return; }
-        if (string.IsNullOrEmpty(full)) return;
+        string full = PathSafety.NormalizeDirForDelete(dir);
+        if (string.IsNullOrEmpty(full))
+        {
+            Log("  Refusing unsafe install dir: " + dir);
+            return;
+        }
         foreach (string existing in dirs)
         {
             if (existing.Equals(full, StringComparison.OrdinalIgnoreCase)) return;
@@ -76,11 +76,11 @@ partial class DSHDesktopUninstaller
         if (names == null || names.Length == 0) return dirs;
 
         List<string> roots = new List<string>();
-        try { roots.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs")); } catch { }
-        try { roots.Add(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)); } catch { }
-        try { roots.Add(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)); } catch { }
-        try { roots.Add(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86)); } catch { }
-        try { roots.Add(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)); } catch { }
+        try { roots.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs")); } catch (Exception ex) { Log("  Warning in FindDshInstallDirsInVariantLocations: " + ex.Message); }
+        try { roots.Add(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)); } catch (Exception ex) { Log("  Warning in FindDshInstallDirsInVariantLocations: " + ex.Message); }
+        try { roots.Add(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)); } catch (Exception ex) { Log("  Warning in FindDshInstallDirsInVariantLocations: " + ex.Message); }
+        try { roots.Add(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86)); } catch (Exception ex) { Log("  Warning in FindDshInstallDirsInVariantLocations: " + ex.Message); }
+        try { roots.Add(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)); } catch (Exception ex) { Log("  Warning in FindDshInstallDirsInVariantLocations: " + ex.Message); }
 
         foreach (string root in roots)
         {
@@ -100,66 +100,43 @@ partial class DSHDesktopUninstaller
     }
     static List<string> FindDshInstallDirsFromRegistry()
     {
-        List<string> existingCandidates = new List<string>();
         List<string> knownExeCandidates = new List<string>();
-
-        RegistryHive[] hives = new RegistryHive[] { RegistryHive.LocalMachine, RegistryHive.CurrentUser };
-        RegistryView[] views = new RegistryView[] { RegistryView.Registry64, RegistryView.Registry32 };
-
-        foreach (RegistryHive hive in hives)
+        ForEachDshUninstallEntry(false, (info, root) =>
         {
-            foreach (RegistryView view in views)
+            if (!MatchesKnownAppId(info.KeyName) &&
+                !IsDshUninstallEntry(info.DisplayName, info.DisplayIcon, info.UninstallString, info.QuietUninstallString, info.InstallLocation, info.BundleCachePath, info.Publisher, info.URLInfoAbout))
             {
-                try
-                {
-                    using (RegistryKey baseKey = RegistryKey.OpenBaseKey(hive, view))
-                    using (RegistryKey uninstallRoot = baseKey.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall"))
-                    {
-                        if (uninstallRoot == null) continue;
-                        foreach (string name in uninstallRoot.GetSubKeyNames())
-                        {
-                            using (RegistryKey sub = uninstallRoot.OpenSubKey(name))
-                            {
-                                if (sub == null) continue;
-                                string displayName = sub.GetValue("DisplayName") as string;
-                                string displayIcon = sub.GetValue("DisplayIcon") as string;
-                                string uninstallString = sub.GetValue("UninstallString") as string;
-                                string quietUninstallString = sub.GetValue("QuietUninstallString") as string;
-                                string installLocation = sub.GetValue("InstallLocation") as string;
-                                string bundleCachePath = sub.GetValue("BundleCachePath") as string;
-                                string publisher = sub.GetValue("Publisher") as string;
-                                string urlInfoAbout = sub.GetValue("URLInfoAbout") as string;
-                                if (!MatchesKnownAppId(name) && !IsDshUninstallEntry(displayName, displayIcon, uninstallString, quietUninstallString, installLocation, bundleCachePath, publisher, urlInfoAbout))
-                                {
-                                    continue;
-                                }
-
-                                string dir = ResolveInstallDirFromRegistryEntry(displayIcon, uninstallString, quietUninstallString, installLocation, bundleCachePath);
-                                if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) continue;
-                                if (HasDshExecutable(dir) || HasDshSignature(dir))
-                                {
-                                    AddInstallDir(knownExeCandidates, dir);
-                                }
-                                else
-                                {
-                                    AddInstallDir(existingCandidates, dir);
-                                }
-                            }
-                        }
-                    }
-                }
-                catch (Exception)
-                {
-                Log("  Warning: non-fatal error ignored.");
-                }
+                return;
             }
-        }
-
+            string dir = ResolveInstallDirFromRegistryEntry(info.DisplayIcon, info.UninstallString, info.QuietUninstallString, info.InstallLocation, info.BundleCachePath);
+            if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return;
+            if (HasDshExecutable(dir) || HasDshSignature(dir))
+            {
+                AddInstallDir(knownExeCandidates, dir);
+            }
+            else
+            {
+                Log("  Skipping registry install dir without DSH signature: " + dir);
+            }
+        });
         List<string> result = new List<string>();
         foreach (string dir in knownExeCandidates) AddInstallDir(result, dir);
-        foreach (string dir in existingCandidates) AddInstallDir(result, dir);
         return result;
     }
+
+    static string ParseExePathFromCommandLine(string commandLine)
+    {
+        if (string.IsNullOrWhiteSpace(commandLine)) return null;
+        string cmd = commandLine.Trim();
+        if (cmd.StartsWith("\""))
+        {
+            int end = cmd.IndexOf('\"', 1);
+            if (end > 0) return cmd.Substring(1, end - 1);
+        }
+        int space = cmd.IndexOf(' ');
+        return space > 0 ? cmd.Substring(0, space) : cmd;
+    }
+
     static string ResolveInstallDirFromRegistryEntry(string displayIcon, string uninstallString, string quietUninstallString, string installLocation, string bundleCachePath)
     {
         // Prefer InstallLocation when the installer actually filled it.
@@ -203,15 +180,13 @@ partial class DSHDesktopUninstaller
     static string NormalizeRegistryPath(string value)
     {
         if (string.IsNullOrWhiteSpace(value)) return string.Empty;
-        string path = value.Trim().Trim('"').Trim();
+        string path = value.Trim().Trim('\"').Trim();
         try
         {
+            path = Environment.ExpandEnvironmentVariables(path);
             path = Path.GetFullPath(path);
         }
-        catch (Exception)
-        {
-                Log("  Warning: non-fatal error ignored.");
-        }
+        catch (Exception ex) { Log("  Warning (ignored): " + ex.Message); }
         return path.TrimEnd('\\');
     }
 
@@ -229,9 +204,9 @@ partial class DSHDesktopUninstaller
     {
         List<string> dirs = new List<string>();
         List<string> roots = new List<string>();
-        try { roots.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs")); } catch { }
-        try { roots.Add(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)); } catch { }
-        try { roots.Add(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86)); } catch { }
+        try { roots.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs")); } catch (Exception ex) { Log("  Warning in FindDshInstallDirsInKnownLocations: " + ex.Message); }
+        try { roots.Add(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)); } catch (Exception ex) { Log("  Warning in FindDshInstallDirsInKnownLocations: " + ex.Message); }
+        try { roots.Add(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86)); } catch (Exception ex) { Log("  Warning in FindDshInstallDirsInKnownLocations: " + ex.Message); }
 
         foreach (string root in roots)
         {
@@ -247,10 +222,7 @@ partial class DSHDesktopUninstaller
                     }
                 }
             }
-            catch (Exception)
-            {
-                Log("  Warning: non-fatal error ignored.");
-            }
+            catch (Exception ex) { Log("  Warning (ignored): " + ex.Message); }
         }
 
         // Direct common locations that may not sit under "Programs".
@@ -285,14 +257,21 @@ partial class DSHDesktopUninstaller
 
     static List<string> FindRunningDshInstallDirs()
     {
+        RefreshProcessCache();
         List<string> dirs = new List<string>();
-        foreach (Process p in Process.GetProcesses())
+        int total = 0;
+        int unreadable = 0;
+        Process[] procs = Process.GetProcesses();
+        total = procs.Length;
+        foreach (Process p in procs)
         {
             try
             {
+                if (!MightBeDshProcess(p)) continue;
                 string path = GetProcessExecutablePath(p);
                 if (string.IsNullOrEmpty(path))
                 {
+                unreadable++;
                     continue;
                 }
 
@@ -312,7 +291,7 @@ partial class DSHDesktopUninstaller
                     (fileName.Equals("wscript.exe", StringComparison.OrdinalIgnoreCase) ||
                      fileName.Equals("wscript", StringComparison.OrdinalIgnoreCase)))
                 {
-                    string cmd = GetProcessCommandLine(p.Id);
+                    string cmd = GetProcessCommandLine(p);
                     if (!string.IsNullOrEmpty(cmd) &&
                         cmd.IndexOf("dsh-edge-app", StringComparison.OrdinalIgnoreCase) >= 0 &&
                         cmd.IndexOf("launcher.vbs", StringComparison.OrdinalIgnoreCase) >= 0)
@@ -335,10 +314,7 @@ partial class DSHDesktopUninstaller
                         continue;
                     }
                 }
-                catch (Exception)
-                {
-                    Log("  Warning: non-fatal error ignored.");
-                }
+                catch (Exception ex) { Log("  Warning (ignored): " + ex.Message); }
 
                 string dir = Path.GetDirectoryName(path);
                 if (!string.IsNullOrEmpty(dir) && (HasDshExecutable(dir) || HasDshSignature(dir)))
@@ -346,11 +322,13 @@ partial class DSHDesktopUninstaller
                     AddInstallDir(dirs, dir);
                 }
             }
-            catch (Exception)
-            {
-                Log("  Warning: non-fatal error ignored.");
-            }
+            catch (Exception ex) { Log("  Warning (ignored): " + ex.Message); }
         }
+        if (unreadable > 0)
+        {
+            Log("  Running process scan: " + total + " processes, " + unreadable + " unreadable (system processes are skipped).");
+        }
+        foreach (Process pd in procs) { try { pd.Dispose(); } catch (Exception ex) { Log("  Warning (ignored): " + ex.Message); } }
         return dirs;
     }
 
@@ -405,10 +383,28 @@ partial class DSHDesktopUninstaller
         List<string> labels = ResolveVariantLabelsFromRegistry();
         return labels.Count > 0 ? labels[0] : string.Empty;
     }
-
-    static List<string> ResolveVariantLabelsFromRegistry()
+    class UninstallEntryInfo
     {
-        List<string> labels = new List<string>();
+        public RegistryHive Hive;
+        public RegistryView View;
+        public string KeyName;
+        public string DisplayName;
+        public string DisplayIcon;
+        public string UninstallString;
+        public string QuietUninstallString;
+        public string InstallLocation;
+        public string BundleCachePath;
+        public string Publisher;
+        public string URLInfoAbout;
+        public string PathForHeuristic;
+    }
+
+    // Shared enumerator for the uninstall-key scans used by variant label
+    // resolution, residual collection and key deletion. All three call sites
+    // read exactly the same values from the same registry roots, so this is
+    // the single place where a new value (e.g. SystemComponent) gets added.
+    static void ForEachDshUninstallEntry(bool writable, Action<UninstallEntryInfo, RegistryKey> action)
+    {
         RegistryHive[] hives = new RegistryHive[] { RegistryHive.LocalMachine, RegistryHive.CurrentUser };
         RegistryView[] views = new RegistryView[] { RegistryView.Registry64, RegistryView.Registry32 };
         foreach (RegistryHive hive in hives)
@@ -418,38 +414,81 @@ partial class DSHDesktopUninstaller
                 try
                 {
                     using (RegistryKey baseKey = RegistryKey.OpenBaseKey(hive, view))
-                    using (RegistryKey uninstallRoot = baseKey.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall"))
+                    using (RegistryKey root = baseKey.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall", writable))
                     {
-                        if (uninstallRoot == null) continue;
-                        foreach (string name in uninstallRoot.GetSubKeyNames())
+                        if (root == null) continue;
+                        foreach (string name in root.GetSubKeyNames())
                         {
-                            using (RegistryKey sub = uninstallRoot.OpenSubKey(name))
+                            UninstallEntryInfo info = new UninstallEntryInfo();
+                            info.Hive = hive;
+                            info.View = view;
+                            info.KeyName = name;
+                            try
                             {
-                                if (sub == null) continue;
-
-                                string displayName = sub.GetValue("DisplayName") as string;
-                                string displayIcon = sub.GetValue("DisplayIcon") as string;
-                                string uninstallString = sub.GetValue("UninstallString") as string;
-                                string quietUninstallString = sub.GetValue("QuietUninstallString") as string;
-                                string installLocation = sub.GetValue("InstallLocation") as string;
-                                string bundleCachePath = sub.GetValue("BundleCachePath") as string;
-                                string publisher = sub.GetValue("Publisher") as string;
-                                string urlInfoAbout = sub.GetValue("URLInfoAbout") as string;
-                                if (!IsDshUninstallEntry(displayName, displayIcon, uninstallString, quietUninstallString, installLocation, bundleCachePath, publisher, urlInfoAbout)) continue;
-
-                                string pathForHeuristic = (installLocation + "|" + displayIcon + "|" + uninstallString + "|" + quietUninstallString + "|" + bundleCachePath);
-                                string label = ResolveVariantLabelFromRegistryEntry(name, displayName, publisher, urlInfoAbout, pathForHeuristic);
-                                if (!string.IsNullOrEmpty(label) && !labels.Contains(label, StringComparer.OrdinalIgnoreCase)) labels.Add(label);
+                                using (RegistryKey sub = root.OpenSubKey(name))
+                                {
+                                    if (sub == null) continue;
+                                    info.DisplayName = sub.GetValue("DisplayName") as string ?? string.Empty;
+                                    info.DisplayIcon = sub.GetValue("DisplayIcon") as string ?? string.Empty;
+                                    info.UninstallString = sub.GetValue("UninstallString") as string ?? string.Empty;
+                                    info.QuietUninstallString = sub.GetValue("QuietUninstallString") as string ?? string.Empty;
+                                    info.InstallLocation = sub.GetValue("InstallLocation") as string ?? string.Empty;
+                                    info.BundleCachePath = sub.GetValue("BundleCachePath") as string ?? string.Empty;
+                                    info.Publisher = sub.GetValue("Publisher") as string ?? string.Empty;
+                                    info.URLInfoAbout = sub.GetValue("URLInfoAbout") as string ?? string.Empty;
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                if (writable)
+                                    LogAndCountFail("  Failed to read uninstall key " + name + ": " + ex.Message);
+                                else
+                                    Log("  Warning (ignored): failed to read uninstall key " + name + ": " + ex.Message);
+                                continue;
+                            }
+                            try
+                            {
+                                info.PathForHeuristic = (info.InstallLocation + "|" + info.DisplayIcon + "|" + info.UninstallString + "|" + info.QuietUninstallString + "|" + info.BundleCachePath);
+                                action(info, root);
+                            }
+                            catch (Exception ex)
+                            {
+                                if (writable)
+                                    LogAndCountFail("  Failed to process uninstall key " + info.KeyName + ": " + ex.Message);
+                                else
+                                    Log("  Warning (ignored): failed to process uninstall key " + info.KeyName + ": " + ex.Message);
                             }
                         }
                     }
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
-                Log("  Warning: non-fatal error ignored.");
+                    if (writable)
+                        LogAndCountFail("  Failed to scan uninstall keys (" + hive + ", " + view + "): " + ex.Message);
+                    else
+                        Log("  Warning (ignored): failed to scan uninstall keys (" + hive + ", " + view + "): " + ex.Message);
                 }
             }
         }
+    }
+
+
+    static List<string> ResolveVariantLabelsFromRegistry()
+    {
+        List<string> labels = new List<string>();
+        try
+        {
+            ForEachDshUninstallEntry(false, (info, root) =>
+            {
+                // Same two predicates as FindDshInstallDirsFromRegistry so a
+                // key that can be deleted is also recognized as a variant label.
+                if (!IsDshUninstallEntry(info.DisplayName, info.DisplayIcon, info.UninstallString, info.QuietUninstallString, info.InstallLocation, info.BundleCachePath, info.Publisher, info.URLInfoAbout)
+                    && !MatchesKnownAppId(info.KeyName)) return;
+                string label = ResolveVariantLabelFromRegistryEntry(info.KeyName, info.DisplayName, info.Publisher, info.URLInfoAbout, info.PathForHeuristic);
+                if (!string.IsNullOrEmpty(label) && !labels.Contains(label, StringComparer.OrdinalIgnoreCase)) labels.Add(label);
+            });
+        }
+        catch (Exception ex) { Log("  Warning (ignored): " + ex.Message); }
         return labels;
     }
     static string ResolveVariantLabelFromRegistryEntry(string keyName, string displayName, string publisher, string urlInfoAbout, string pathForHeuristic)
@@ -490,10 +529,79 @@ partial class DSHDesktopUninstaller
         return string.Empty;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    struct WinTrustData { public uint cbStruct; public IntPtr pPolicyCallbackData; public IntPtr pSIPClientData; public uint dwUIChoice; public uint fdwRevocationChecks; public uint dwUnionChoice; public IntPtr pFile; public uint dwStateAction; public IntPtr hWVTStateData; public IntPtr pwszURLReference; public uint dwProvFlags; public uint dwUIContext; }
+    [StructLayout(LayoutKind.Sequential)]
+    struct WinTrustFileInfo { public uint cbStruct; public IntPtr pcwszFilePath; public IntPtr hFile; public IntPtr pgKnownSubject; }
+    [DllImport("wintrust.dll", CharSet = CharSet.Unicode)]
+    static extern uint WinVerifyTrust(IntPtr hwnd, [MarshalAs(UnmanagedType.LPStruct)] Guid pgActionID, ref WinTrustData pWVTData);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern bool GetFileVersionInfoSize(string lptstrFilename, out uint lpdwHandle);
+    static readonly Guid WinTrustActionGenericVerifyV2 = new Guid("{00AAC56B-CD44-11d0-8CC2-00C04FC295EE}");
+
+    // Strong evidence for /InstallDir: at least one executable in the directory
+    // must carry a valid Authenticode signature (verified via WinVerifyTrust),
+    // or the directory must already be bound to a known DSH uninstall registry
+    // entry pointing at this exact path. File-name heuristics alone are NOT
+    // enough to authorize recursive deletion.
+    static bool IsStrongInstallDirEvidence(string dir)
+    {
+        if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return false;
+        try
+        {
+            foreach (string exe in Directory.GetFiles(dir, "*.exe", SearchOption.TopDirectoryOnly))
+            {
+                if (HasAuthenticodeSignature(exe)) return true;
+            }
+        }
+        catch (Exception ex) { Log("  Warning in IsStrongInstallDirEvidence (scan exe): " + ex.Message); }
+        try
+        {
+            string full = Path.GetFullPath(dir).TrimEnd('\\');
+            foreach (string reg in FindDshInstallDirsFromRegistry())
+            {
+                if (!string.IsNullOrEmpty(reg) && Path.GetFullPath(reg).TrimEnd('\\').Equals(full, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+        }
+        catch (Exception ex) { Log("  Warning in IsStrongInstallDirEvidence (registry bind): " + ex.Message); }
+        return false;
+    }
+
+    static bool HasAuthenticodeSignature(string file)
+    {
+        if (string.IsNullOrEmpty(file) || !File.Exists(file)) return false;
+        try
+        {
+            WinTrustFileInfo fi = new WinTrustFileInfo();
+            fi.cbStruct = (uint)Marshal.SizeOf(typeof(WinTrustFileInfo));
+            IntPtr pPath = Marshal.StringToCoTaskMemUni(file);
+            fi.pcwszFilePath = pPath;
+            WinTrustData data = new WinTrustData();
+            data.cbStruct = (uint)Marshal.SizeOf(typeof(WinTrustData));
+            data.dwUIChoice = 2; // WTD_UI_NONE
+            data.fdwRevocationChecks = 0;
+            data.dwUnionChoice = 1; // WTD_CHOICE_FILE
+            data.pFile = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(WinTrustFileInfo)));
+            Marshal.StructureToPtr(fi, data.pFile, false);
+            data.dwStateAction = 1; // WTD_STATEACTION_VERIFY
+            data.dwProvFlags = 0x10; // WTD_CACHE_ONLY_URL_RETRIEVAL
+            uint result = WinVerifyTrust(IntPtr.Zero, WinTrustActionGenericVerifyV2, ref data);
+            uint closing = WinVerifyTrust(IntPtr.Zero, WinTrustActionGenericVerifyV2, ref data);
+            Marshal.FreeHGlobal(data.pFile);
+            Marshal.FreeCoTaskMem(pPath);
+            return result == 0;
+        }
+        catch (Exception ex)
+        {
+            Log("  Warning in HasAuthenticodeSignature (" + file + "): " + ex.Message);
+            return false;
+        }
+    }
+
     static bool HasDshExecutable(string dir)
     {
         if (string.IsNullOrEmpty(dir)) return false;
-        string[] names = KnownExeNames;
+        string[] names = VariantCatalog.AllExeNames;
         foreach (string name in names)
         {
             if (File.Exists(Path.Combine(dir, name))) return true;
@@ -501,54 +609,64 @@ partial class DSHDesktopUninstaller
         return false;
     }
 
-    // Some variants keep the app under resources\app or only ship package.json.
-    // HasDshSignature accepts those install dirs even when the main exe name is
-    // not in KnownExeNames (e.g. Electron apps named differently).
-    static bool HasDshSignature(string dir)
+static bool HasDshSignature(string dir)
+{
+    if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return false;
+
+    bool asarPresent = File.Exists(Path.Combine(dir, "resources", "app.asar"))
+        || Directory.Exists(Path.Combine(dir, "resources", "app"))
+        || Directory.Exists(Path.Combine(dir, "resources", "app.asar.unpacked"));
+    bool dirNameDsh = IsDshRelatedName(Path.GetFileName(dir.TrimEnd('\\')));
+    if (asarPresent && dirNameDsh) return true;
+
+    string packageJson = Path.Combine(dir, "package.json");
+    if (asarPresent && File.Exists(packageJson) && PackageJsonLooksDsh(packageJson)) return true;
+
+    string appPackage = Path.Combine(dir, "resources", "app", "package.json");
+    if (asarPresent && File.Exists(appPackage) && PackageJsonLooksDsh(appPackage)) return true;
+
+
+    return false;
+}
+
+static bool PackageJsonLooksDsh(string file)
+{
+    try
     {
-        if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return false;
-
-        if (File.Exists(Path.Combine(dir, "resources", "app.asar"))) return true;
-        if (Directory.Exists(Path.Combine(dir, "resources", "app"))) return true;
-        if (Directory.Exists(Path.Combine(dir, "resources", "app.asar.unpacked"))) return true;
-
-        string packageJson = Path.Combine(dir, "package.json");
-        if (File.Exists(packageJson))
+        string text = File.ReadAllText(file);
+        System.Web.Script.Serialization.JavaScriptSerializer ser = new System.Web.Script.Serialization.JavaScriptSerializer();
+        object obj = ser.DeserializeObject(text);
+        Dictionary<string, object> dict = obj as Dictionary<string, object>;
+        if (dict != null)
         {
-            try
+            if (dict.ContainsKey("dsh")) return true;
+            string name = dict.ContainsKey("name") ? (dict["name"] as string ?? string.Empty) : string.Empty;
+            string product = dict.ContainsKey("productName") ? (dict["productName"] as string ?? string.Empty) : string.Empty;
+            if (ContainsDshWord(name)) return true;
+            if (ContainsDshWord(product)) return true;
+            return false;
+        }
+        return false;
+    }
+    catch (Exception ex)
+    {
+        Log("  PackageJsonLooksDsh failed for " + file + ": " + ex.Message);
+        return false;
+    }
+}
+
+    static bool ContainsDshWord(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return false;
+        string[] parts = value.Split(new char[] { '-', '_', ' ', '.', '/', '@' }, StringSplitOptions.RemoveEmptyEntries);
+        foreach (string part in parts)
+        {
+            if (part.Equals("dsh", StringComparison.OrdinalIgnoreCase) ||
+                part.Equals("deepseek", StringComparison.OrdinalIgnoreCase))
             {
-                string text = File.ReadAllText(packageJson);
-                if (text.IndexOf("\"dsh\"", StringComparison.OrdinalIgnoreCase) >= 0
-                    || text.IndexOf("\"deepseek\"", StringComparison.OrdinalIgnoreCase) >= 0
-                    || text.IndexOf("deepseek", StringComparison.OrdinalIgnoreCase) >= 0)
-                {
-                    return true;
-                }
-            }
-            catch (Exception)
-            {
-                Log("  Warning: non-fatal error ignored.");
+                return true;
             }
         }
-
-        string appPackage = Path.Combine(dir, "resources", "app", "package.json");
-        if (File.Exists(appPackage))
-        {
-            try
-            {
-                string text = File.ReadAllText(appPackage);
-                if (text.IndexOf("\"dsh\"", StringComparison.OrdinalIgnoreCase) >= 0
-                    || text.IndexOf("\"deepseek\"", StringComparison.OrdinalIgnoreCase) >= 0)
-                {
-                    return true;
-                }
-            }
-            catch (Exception)
-            {
-                Log("  Warning: non-fatal error ignored.");
-            }
-        }
-
         return false;
     }
 
@@ -564,10 +682,69 @@ partial class DSHDesktopUninstaller
 
     // MainModule.FileName throws for elevated/other-session processes. Fall back
 
-    // WMI CommandLine lookup for script-host processes (wscript.exe running
-    // launcher.vbs). Returns string.Empty when unavailable.
-    static string GetProcessCommandLine(int pid)
+    // Fast process-name prefilter shared by running-process detection
+    // and process cleanup. Keeps MainModule/WMI probes off unrelated
+    // One bulk WMI query per process-set snapshot instead of one query per
+    // candidate process. Fills the PID caches (thread-safe dictionaries).
+    static void RefreshProcessCache()
     {
+        try
+        {
+            using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("SELECT ProcessId, Name, ExecutablePath, CommandLine FROM Win32_Process"))
+            {
+                foreach (ManagementObject mo in searcher.Get())
+                {
+                    try
+                    {
+                        int pid = Convert.ToInt32(mo["ProcessId"]);
+                        string path = mo["ExecutablePath"] as string;
+                        string cmd = mo["CommandLine"] as string;
+                        KeyValuePair<DateTime, string> pv = new KeyValuePair<DateTime, string>(DateTime.MinValue, string.IsNullOrEmpty(path) ? string.Empty : path);
+                        KeyValuePair<DateTime, string> cv = new KeyValuePair<DateTime, string>(DateTime.MinValue, string.IsNullOrEmpty(cmd) ? string.Empty : cmd);
+                        CachedProcessPaths[pid] = pv;
+                        CachedProcessCommandLines[pid] = cv;
+                    }
+                    catch (Exception) { }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log("  Warning: bulk process WMI query failed: " + ex.Message);
+        }
+    }
+
+
+    static bool MightBeDshProcess(Process p)
+    {
+        return NameMatcher.EqualsToken(p.ProcessName, VariantCatalog.AllProcessNames)
+            || p.ProcessName.Equals("wscript", StringComparison.OrdinalIgnoreCase)
+            || p.ProcessName.Equals("wscript.exe", StringComparison.OrdinalIgnoreCase);
+    }
+
+    static DateTime GetProcessStartTime(Process p)
+    {
+        try { return p.StartTime; }
+        catch (Exception) { return DateTime.MinValue; }
+    }
+
+    static string GetProcessCommandLine(Process p)
+    {
+        // Prefer the bulk snapshot cache (key DateTime.MinValue means fresh snapshot).
+        int pid = p.Id;
+        KeyValuePair<DateTime, string> cachedCmd;
+        if (CachedProcessCommandLines.TryGetValue(pid, out cachedCmd))
+        {
+            if (cachedCmd.Key == DateTime.MinValue) return cachedCmd.Value;
+            DateTime started = GetProcessStartTime(p);
+            if (started != DateTime.MinValue && cachedCmd.Key == started) return cachedCmd.Value;
+        }
+        return QuerySingleProcessCommandLine(pid);
+    }
+
+    static string QuerySingleProcessCommandLine(int pid)
+    {
+        string result = string.Empty;
         try
         {
             using (System.Management.ManagementObjectSearcher searcher =
@@ -576,45 +753,50 @@ partial class DSHDesktopUninstaller
                 foreach (System.Management.ManagementObject obj in searcher.Get())
                 {
                     string cmd = obj["CommandLine"] as string;
-                    return string.IsNullOrEmpty(cmd) ? string.Empty : cmd;
+                    result = string.IsNullOrEmpty(cmd) ? string.Empty : cmd;
+                    break;
                 }
             }
         }
-        catch (Exception)
-        {
-            Log("  Warning: non-fatal error ignored.");
-        }
-        return string.Empty;
+        catch (Exception) { }
+        CachedProcessCommandLines[pid] = new KeyValuePair<DateTime, string>(DateTime.MinValue, result);
+        return result;
     }
-    // to a WMI Win32_Process query so process detection still works for those.
+
     static string GetProcessExecutablePath(Process p)
     {
+        int pid = p.Id;
+        KeyValuePair<DateTime, string> cached;
+        if (CachedProcessPaths.TryGetValue(pid, out cached))
+        {
+            if (cached.Key == DateTime.MinValue) return cached.Value;
+            DateTime started = GetProcessStartTime(p);
+            if (started != DateTime.MinValue && cached.Key == started) return cached.Value;
+        }
         try
         {
             string path = p.MainModule.FileName;
-            if (!string.IsNullOrEmpty(path)) return path;
+            if (!string.IsNullOrEmpty(path)) { CachedProcessPaths[pid] = new KeyValuePair<DateTime, string>(DateTime.MinValue, path); return path; }
         }
-        catch (Exception)
-        {
-                Log("  Warning: non-fatal error ignored.");
-        }
+        catch (Exception) { }
+        return QuerySingleProcessExecutablePath(pid);
+    }
 
+    static string QuerySingleProcessExecutablePath(int pid)
+    {
         try
         {
-            using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("SELECT ExecutablePath FROM Win32_Process WHERE ProcessId = " + p.Id))
+            using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("SELECT ExecutablePath FROM Win32_Process WHERE ProcessId = " + pid))
             {
                 foreach (ManagementObject mo in searcher.Get())
                 {
                     string path = mo["ExecutablePath"] as string;
-                    if (!string.IsNullOrEmpty(path)) return path;
+                    if (!string.IsNullOrEmpty(path)) { CachedProcessPaths[pid] = new KeyValuePair<DateTime, string>(DateTime.MinValue, path); return path; }
                 }
-            }
         }
-        catch (Exception)
-        {
-                Log("  Warning: non-fatal error ignored.");
         }
-
+        catch (Exception) { }
+        CachedProcessPaths[pid] = new KeyValuePair<DateTime, string>(DateTime.MinValue, string.Empty);
         return string.Empty;
     }
 
@@ -641,23 +823,14 @@ partial class DSHDesktopUninstaller
 
     static bool IsDshRelatedPath(string path)
     {
+        // A bare dsh/.dsh path segment is only a weak candidate hint;
+        // deletion decisions must additionally bind to a known variant,
+        // appId or detected install dir. Keep this predicate broad for
+        // detection scans, but never use it alone to authorize deletion.
         if (NameMatcher.ContainsToken(path, NameMatcher.PathTokens)) return true;
         return NameMatcher.ContainsPathSegment(path, "dsh", ".dsh");
     }
 
-    static string ParseExePathFromCommandLine(string commandLine)
-    {
-        if (string.IsNullOrWhiteSpace(commandLine)) return null;
-
-        string cmd = commandLine.Trim();
-        if (cmd.StartsWith("\""))
-        {
-            int end = cmd.IndexOf('"', 1);
-            if (end > 0) return cmd.Substring(1, end - 1);
-        }
-        int space = cmd.IndexOf(' ');
-        return space > 0 ? cmd.Substring(0, space) : cmd;
-    }
 
     static string ResolveDshHome()
     {
@@ -667,20 +840,24 @@ partial class DSHDesktopUninstaller
             if (!string.IsNullOrWhiteSpace(env))
             {
                 string candidate = env.Trim().TrimEnd('\\');
-                string full = Path.GetFullPath(candidate);
-                bool isSafe = !IsUnsafeRootPath(full) &&
-                    (Path.GetFileName(full).StartsWith(".dsh", StringComparison.OrdinalIgnoreCase) ||
-                     Directory.Exists(Path.Combine(full, ".agent-presets")) ||
-                     Directory.Exists(Path.Combine(full, "sessions")) ||
-                     Directory.Exists(Path.Combine(full, "skills")));
-                if (isSafe) return full;
+                if (PathSafety.IsUnsafeRootPath(candidate))
+                {
+                    Log("  WARNING: refusing unsafe DSH_HOME override: " + env);
+                }
+                else
+                {
+                    string full = Path.GetFullPath(candidate);
+                    bool isSafe = !PathSafety.IsUnsafeRootPath(full) &&
+                        (IsDshHomeName(Path.GetFileName(full.TrimEnd('\\'))) ||
+                         (Directory.Exists(Path.Combine(full, ".agent-presets")) &&
+                          Directory.Exists(Path.Combine(full, "sessions")) &&
+                          Directory.Exists(Path.Combine(full, "skills"))));
+                    if (isSafe) return full;
+                    Log("  WARNING: refusing weak DSH_HOME override (must be .dsh/.dsh-* or contain .agent-presets + sessions + skills): " + env);
+                }
             }
         }
-        catch (Exception)
-        {
-            Log("  Warning: non-fatal error ignored.");
-        }
-
+        catch (Exception ex) { Log("  Warning (ignored): " + ex.Message); }
         return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dsh");
     }
 #endregion

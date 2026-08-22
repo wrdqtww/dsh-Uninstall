@@ -17,6 +17,9 @@ partial class DSHDesktopUninstaller
         private ProgressBar progress;
         private TextBox txtLog;
           public bool AllowClose = false;
+        private readonly Queue<string> pendingLog = new Queue<string>();
+        private readonly object logLock = new object();
+        private System.Windows.Forms.Timer logTimer;
 
         public ConfirmForm(string message)
         {
@@ -58,7 +61,7 @@ partial class DSHDesktopUninstaller
         public void SwitchToProgress()
         {
             Controls.Clear();
-            Text = "DSH \u5378\u8f7d\u8fdb\u5ea6";
+            Text = "DSH 卸载进度";
             FormBorderStyle = FormBorderStyle.Sizable;
             MaximizeBox = false;
             MinimizeBox = false;
@@ -68,7 +71,7 @@ partial class DSHDesktopUninstaller
             ClientSize = new Size(580, 420);
 
             lblCurrentOp = new Label();
-            lblCurrentOp.Text = "\u5f53\u524d\u64cd\u4f5c\uff1a\u51c6\u5907\u5f00\u59cb...";
+            lblCurrentOp.Text = "当前操作：正在卸载，请勿关闭窗口";
             lblCurrentOp.AutoSize = false;
             lblCurrentOp.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             lblCurrentOp.SetBounds(12, 12, 556, 24);
@@ -93,25 +96,27 @@ partial class DSHDesktopUninstaller
             txtLog.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
             txtLog.SetBounds(12, 70, 556, 336);
             Controls.Add(txtLog);
+
+              logTimer = new System.Windows.Forms.Timer();
+              logTimer.Interval = 80;
+              logTimer.Tick += delegate { DrainLog(); };
+              logTimer.Start();
         }
 
         public void SetCurrentOp(string op)
         {
-            if (InvokeRequired) { try { BeginInvoke((Action)(() => SetCurrentOp(op))); } catch (Exception) { } return; }
+            if (InvokeRequired) { try { BeginInvoke((Action)(() => SetCurrentOp(op))); } catch (Exception) { /* intentionally empty: UI control already marshalled or form gone */ } return; }
             try
             {
                 if (lblCurrentOp != null) lblCurrentOp.Text = "\u5f53\u524d\u64cd\u4f5c\uff1a" + op;
             }
-            catch (Exception)
-            {
-                Log("  Warning: non-fatal error ignored.");
-            }
+            catch (Exception ex) { Log("  Warning (ignored): " + ex.Message); }
         }
 
 
         public void SetProgress(int percent)
         {
-            if (InvokeRequired) { try { BeginInvoke((Action)(() => SetProgress(percent))); } catch (Exception) { } return; }
+            if (InvokeRequired) { try { BeginInvoke((Action)(() => SetProgress(percent))); } catch (Exception) { /* intentionally empty: UI control already marshalled or form gone */ } return; }
             try
             {
                 if (progress == null) return;
@@ -120,15 +125,20 @@ partial class DSHDesktopUninstaller
                 if (v > 100) v = 100;
                 progress.Value = v;
             }
-            catch (Exception)
-            {
-                Log("  Warning: non-fatal error ignored.");
-            }
+            catch (Exception ex) { Log("  Warning (ignored): " + ex.Message); }
         }
 
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
+            // Stop the log timer and flush queued log lines before closing.
+            if (logTimer != null)
+            {
+                logTimer.Stop();
+                logTimer.Dispose();
+                logTimer = null;
+            }
+            DrainLog();
             if (!AllowClose && progress != null)
             {
                 e.Cancel = true;
@@ -139,22 +149,43 @@ partial class DSHDesktopUninstaller
 
         public void Append(string message)
         {
-            if (InvokeRequired) { try { BeginInvoke((Action)(() => Append(message))); } catch (Exception) { } return; }
+            // Enqueue only; a UI timer drains the queue in batches so the
+            // worker thread never floods the message loop with small delegates.
+            lock (logLock)
+            {
+                pendingLog.Enqueue(message);
+            }
+        }
+
+        private void DrainLog()
+        {
+            if (txtLog == null) return;
+            List<string> batch = new List<string>();
+            lock (logLock)
+            {
+                while (pendingLog.Count > 0) batch.Add(pendingLog.Dequeue());
+            }
+            if (batch.Count == 0) return;
             try
             {
-                if (txtLog == null) return;
-                txtLog.AppendText(message + Environment.NewLine);
+                StringBuilder sb = new StringBuilder();
+                foreach (string msg in batch) sb.Append(msg).Append(Environment.NewLine);
+                txtLog.AppendText(sb.ToString());
                 txtLog.SelectionStart = txtLog.TextLength;
                 txtLog.ScrollToCaret();
-                string t = message.Trim();
+                string t = batch[batch.Count - 1].Trim();
                 if (t.StartsWith("[") || t.StartsWith("Command:") || t.StartsWith("Command result:"))
                 {
                     SetCurrentOp(t);
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                Log("  Warning: non-fatal error ignored.");
+                // Do not call Log() here: Log() enqueues back into this same
+                // queue, which would only delay the message to the next timer
+                // tick. Write directly to the log file and console instead.
+                try { LogService.WriteToMainOnly("  Warning (ignored): " + ex.Message); } catch (Exception) { }
+                try { Console.WriteLine("  Warning (ignored): " + ex.Message); } catch (Exception) { }
             }
         }
     }
@@ -354,6 +385,10 @@ partial class DSHDesktopUninstaller
         {
             for (int i = 0; i < list.Items.Count; i++)
             {
+                // Placeholder rows like "（未检测到预设）" are display-only and
+                // must never be checked when the parent category is selected.
+                string text = list.Items[i].ToString();
+                if (text.StartsWith("\uFF08\u672A\u68C0\u6D4B\u5230")) continue;
                 list.SetItemChecked(i, isChecked);
             }
         }
@@ -364,7 +399,11 @@ partial class DSHDesktopUninstaller
             updating = true;
             try
             {
-                int total = list.Items.Count;
+                int total = 0;
+                for (int i = 0; i < list.Items.Count; i++)
+                {
+                    if (!list.Items[i].ToString().StartsWith("\uFF08\u672A\u68C0\u6D4B\u5230")) total++;
+                }
                 if (total > 0)
                 {
                     int checkedCount = list.CheckedItems.Count;
@@ -701,7 +740,7 @@ partial class DSHDesktopUninstaller
             };
             WireItemCheck(clbPresets, chkPresets, () => hasPresets, () => updatingPresetState, v => updatingPresetState = v, false);
 
-              List<PresetInfo> detected = DSHDesktopUninstaller.DetectAgentPresets();
+              List<PresetInfo> detected = DSHDesktopUninstaller.CachedPresets; if (detected == null) detected = DSHDesktopUninstaller.DetectAgentPresets();
             hasPresets = detected.Count > 0;
             if (detected.Count == 0)
             {
@@ -743,7 +782,7 @@ partial class DSHDesktopUninstaller
             };
             WireItemCheck(clbPlugins, chkPlugins, () => hasPlugins, () => updatingPluginState, v => updatingPluginState = v, true);
 
-              List<PluginInfo> detectedPlugins = DSHDesktopUninstaller.DetectPlugins();
+              List<PluginInfo> detectedPlugins = DSHDesktopUninstaller.CachedPlugins; if (detectedPlugins == null) detectedPlugins = DSHDesktopUninstaller.DetectPlugins();
             hasPlugins = detectedPlugins.Count > 0;
             if (detectedPlugins.Count == 0)
             {
@@ -778,7 +817,7 @@ partial class DSHDesktopUninstaller
             };
             WireItemCheck(clbSkills, chkSkills, () => hasSkills, () => updatingSkillState, v => updatingSkillState = v, false);
 
-              List<SkillInfo> detectedSkills = DSHDesktopUninstaller.DetectSkills();
+              List<SkillInfo> detectedSkills = DSHDesktopUninstaller.CachedSkills; if (detectedSkills == null) detectedSkills = DSHDesktopUninstaller.DetectSkills();
             hasSkills = detectedSkills.Count > 0;
             if (detectedSkills.Count == 0)
             {

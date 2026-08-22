@@ -1,8 +1,10 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
+using System.Web.Script.Serialization;
 
 // Data-driven helpers shared by the DSHDesktopUninstaller partial class.
 // These types are intentionally free of UI, registry and process logic so they
@@ -41,7 +43,7 @@ public class VariantProfile
 /// <summary>Known repository -> cleanup profile. Keys are matched by substring, in order.</summary>
 public static class VariantCatalog
 {
-    public static readonly List<VariantProfile> Profiles = new List<VariantProfile>()
+    private static readonly List<VariantProfile> ProfileList = new List<VariantProfile>()
     {
         new VariantProfile("deepseek-ai", "官方 deepseek-ai/deepseek-harness",  new[]{"com.deepseek.dsh.desktop"}, new string[0], new[]{"DSH Desktop.exe","dsh-desktop.exe"}, new[]{"DSH Desktop","dsh-desktop"}, new[]{"DSH Desktop.lnk","dsh-desktop.lnk"}, new[]{"dsh-desktop-updater","dsh-launcher-updater"}, new[]{"dsh-desktop","DSH Desktop"}, new[]{"DSH Desktop","dsh-desktop"}),
         new VariantProfile("myyangyunfan", "第三方 myYangyunfan/dsh_desktop",  new[]{"com.deepseek.dsh.desktop"}, new[]{"DSH Desktop","dsh-desktop"}, new[]{"DSH Desktop.exe","dsh-desktop.exe","dsh-tauri-app.exe"}, new[]{"DSH Desktop","dsh-desktop","dsh-tauri-app"}, new[]{"DSH Desktop.lnk","dsh-desktop.lnk"}, new[]{"dsh-desktop-updater","dsh-launcher-updater"}, new[]{"dsh-desktop","DSH Desktop","com.deepseek.dsh.desktop"}, new[]{"DSH Desktop","dsh-desktop","com.deepseek.dsh.desktop"}),
@@ -62,9 +64,12 @@ public static class VariantCatalog
           new VariantProfile("lai-133", "第三方 lai-133/dsh-integration",  new string[0], new[]{"dsh-desktop"}, new[]{"dsh-desktop.exe"}, new[]{"dsh-desktop"}, new[]{"dsh-desktop.lnk"}, new string[0], new[]{"dsh-desktop"}, new[]{"dsh-desktop"}),
     };
 
+    /// <summary>Public read-only view of the catalog. The backing list is private so callers cannot cast the interface back to List and mutate it.</summary>
+    public static readonly IReadOnlyList<VariantProfile> Profiles = ProfileList.AsReadOnly();
+
+
     /// <summary>Union of every AppId declared by any known profile.</summary>
     public static readonly string[] AllAppIds = BuildAllAppIds();
-
     static string[] BuildAllAppIds()
     {
         List<string> ids = new List<string>();
@@ -122,6 +127,7 @@ public static class VariantCatalog
 
     static string[] BuildNameUnion(Func<VariantProfile, string[]> selector, string[] extra)
     {
+        HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         List<string> names = new List<string>();
         foreach (VariantProfile p in Profiles)
         {
@@ -130,12 +136,7 @@ public static class VariantCatalog
             foreach (string v in values)
             {
                 if (string.IsNullOrEmpty(v)) continue;
-                bool seen = false;
-                foreach (string existing in names)
-                {
-                    if (existing.Equals(v, StringComparison.OrdinalIgnoreCase)) { seen = true; break; }
-                }
-                if (!seen) names.Add(v);
+                if (seen.Add(v)) names.Add(v);
             }
         }
         if (extra != null)
@@ -143,12 +144,7 @@ public static class VariantCatalog
             foreach (string v in extra)
             {
                 if (string.IsNullOrEmpty(v)) continue;
-                bool seen = false;
-                foreach (string existing in names)
-                {
-                    if (existing.Equals(v, StringComparison.OrdinalIgnoreCase)) { seen = true; break; }
-                }
-                if (!seen) names.Add(v);
+                if (seen.Add(v)) names.Add(v);
             }
         }
         return names.ToArray();
@@ -158,41 +154,54 @@ public static class VariantCatalog
     // Path hints -> label. Detection.ResolveLabelFromPath consults this map
     // instead of keeping a second copy of repo/label mappings.
     // ------------------------------------------------------------------
-    static readonly Dictionary<string, string> PathHintLabels = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-    {
-        { "deepseek-ai", "官方 deepseek-ai/deepseek-harness" },
-        { "deepseek_ai", "官方 deepseek-ai/deepseek-harness" },
-        { "dsh-edge-app", "第三方 2633352305/DeepSeekHarness-Desktop" },
-        { "dsh-integration", "第三方 lai-133/dsh-integration" },
-        { "ackow", "第三方 Ackow/dsh-desktop" },
-        { "lburny", "第三方 LBurny/deepseek-harness-desktop" },
-        { "amazingboycrazy", "第三方 AmazingBoyCrazy/dsh_desktop" },
-        { "easyhoov", "第三方 Easyhoov/deepseek-harness-desktop-windows" },
-        { "deepseek-harness-desktop-windows", "第三方 Easyhoov/deepseek-harness-desktop-windows" },
-        { "deepseek-harness-eac", "第三方 zouyuxuan122/Deepseek-Harness-EAC" },
-        { "deepseek harness eac", "第三方 zouyuxuan122/Deepseek-Harness-EAC" },
-        { "steven-kid", "第三方 steven-kid/deepseek-harness-desktop" },
-        { "deepseek harness desktop", "第三方 Easyhoov/deepseek-harness-desktop-windows" },
-        { "dsh-desktop-hub", "第三方 FlashingChen/dsh-desktop-hub" },
-        { "dsh desktop hub", "第三方 FlashingChen/dsh-desktop-hub" },
-        { "dsh-cockpit", "第三方 Lxiayu/DshCockpit" },
-        { "dsh cockpit", "第三方 Lxiayu/DshCockpit" },
-        { "dsh-studio", "第三方 gxcsoccer/dsh-studio" },
-        { "dsh-electron-shell", "第三方 citrusli2026/dsh-electron-shell" },
-        { "dsh-web", "第三方 ding7015869-alt/dsh-web-desktop" },
-        { "dsh web", "第三方 ding7015869-alt/dsh-web-desktop" },
-        { "dsh-client", "第三方 hastings0714/dsh-client" },
-        { "deepseek-harness", "第三方 steven-kid/deepseek-harness-desktop" },
-        { "dsh-desktop", "第三方 myYangyunfan/dsh_desktop" },
-        { "dsh desktop", "第三方 myYangyunfan/dsh_desktop" },
-        { "dsh-desk", "第三方 majiayu000/dsh-desk" },
-        { "dsh desk", "第三方 majiayu000/dsh-desk" }
-    };
+    static readonly Dictionary<string, string> PathHintLabels = BuildPathHintLabels();
+    static readonly KeyValuePair<string, string>[] SortedPathHints = PathHintLabels.OrderByDescending(kvp => kvp.Key.Length).ToArray();
 
+    // Generated from VariantCatalog.Profiles so repo/label mappings live in
+    // exactly one place. Aliases and negative hints that cannot be derived
+    // from the profile table are added after the loop.
+    static Dictionary<string, string> BuildPathHintLabels()
+    {
+        Dictionary<string, string> map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (VariantProfile p in Profiles)
+        {
+            if (string.IsNullOrEmpty(p.Repo) || string.IsNullOrEmpty(p.Label)) continue;
+            AddHint(map, p.Repo, p.Label);
+            string last = p.Repo;
+            int slash = last.LastIndexOf('/');
+            if (slash >= 0) last = last.Substring(slash + 1);
+            AddHint(map, last, p.Label);
+            // deepseek-ai shares its generic exe/dir names with myyangyunfan.
+            // Do not let the official profile own "DSH Desktop" via a path hint;
+            // registry appId logic already handles the official variant.
+            if (p.Repo.Equals("deepseek-ai", StringComparison.OrdinalIgnoreCase)) continue;
+            if (p.InstallDirNames != null) foreach (string n in p.InstallDirNames) AddHint(map, n, p.Label);
+            if (p.ExeNames != null) foreach (string e in p.ExeNames) { string n = e.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? e.Substring(0, e.Length - 4) : e; AddHint(map, n, p.Label); }
+        }
+        map["deepseek_ai"] = "官方 deepseek-ai/deepseek-harness";
+        map["deepseek harness desktop"] = "第三方 Easyhoov/deepseek-harness-desktop-windows";
+        map["deepseek harness eac"] = "第三方 zouyuxuan122/Deepseek-Harness-EAC";
+        map["dsh desktop hub"] = "第三方 FlashingChen/dsh-desktop-hub";
+        map["dsh cockpit"] = "第三方 Lxiayu/DshCockpit";
+        map["dsh web"] = "第三方 ding7015869-alt/dsh-web-desktop";
+        map["dsh desktop"] = "第三方 myYangyunfan/dsh_desktop";
+        map["dsh desk"] = "第三方 majiayu000/dsh-desk";
+        map["dsh-desktop-client"] = string.Empty; // npm plugin, not a desktop app
+        return map;
+    }
+
+    static void AddHint(Dictionary<string, string> map, string key, string label)
+    {
+        if (string.IsNullOrEmpty(key) || map.ContainsKey(key)) return;
+        map[key] = label;
+    }
+    // Dictionary insertion order is an implementation detail. FindLabelByPath
+    // sorts by key length so more specific keys ("dsh-desktop-hub") always
+    // win over shorter, contained keys ("dsh-desktop").
     public static string FindLabelByPath(string path)
     {
         if (string.IsNullOrWhiteSpace(path)) return string.Empty;
-        foreach (KeyValuePair<string, string> pair in PathHintLabels)
+        foreach (KeyValuePair<string, string> pair in SortedPathHints)
         {
             if (path.IndexOf(pair.Key, StringComparison.OrdinalIgnoreCase) >= 0)
             {
@@ -202,24 +211,62 @@ public static class VariantCatalog
         return string.Empty;
     }
 
-    /// <summary>Returns the first profile whose repo token is contained in the given repo string, or null.</summary>
+    /// <summary>Returns the profile whose repo token appears in the given repo string. Chooses the longest matching token so shorter tokens like "dsh-desk" never shadow "dsh-desktop" purely because of profile order.</summary>
     public static VariantProfile Find(string repo)
     {
         if (string.IsNullOrEmpty(repo)) return null;
+        VariantProfile best = null;
+        int bestLen = 0;
         foreach (VariantProfile p in Profiles)
         {
-            if (repo.IndexOf(p.Repo, StringComparison.OrdinalIgnoreCase) >= 0)
+            if (p.Repo.Length > bestLen && repo.IndexOf(p.Repo, StringComparison.OrdinalIgnoreCase) >= 0)
             {
-                return p;
+                bestLen = p.Repo.Length;
+                best = p;
             }
         }
-        return null;
+        return best;
     }
 
-    /// <summary>Returns the first profile declaring the given app id, or null.</summary>
+    /// <summary>Explicit owner for app ids shared by several repositories. The
+    /// registry key name is authoritative but not 1:1 with a repo; this table
+    /// records which repo actually writes each key. KEY ASSUMPTION:
+    /// com.deepseek.dsh.desktop is owned by myyangyunfan (the real desktop
+    /// installer). The official deepseek-ai profile also declares that appId
+    /// but the official monorepo ships no desktop installer and writes no
+    /// uninstall registry key; if a future official desktop starts writing
+    /// it, the DisplayName disambiguation path must be extended here. EAC
+    /// still shares the key and is disambiguated by DisplayName in
+    /// ResolveVariantLabelFromRegistryEntry before FindByAppId is consulted.</summary>
+    public static readonly Dictionary<string, string> AppIdOwner = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        { "com.deepseek.dsh.desktop", "myyangyunfan" },
+        { "io.dsh.desktop", "dataelement" },
+        { "io.github.amazingboycrazy.dsh-desktop", "amazingboycrazy" },
+        { "com.deepseek.harness.desktop", "easyhoov" },
+        { "io.github.steven-kid.deepseek-harness-desktop", "steven-kid" },
+        { "com.dshdesktop.desktop", "lburny" },
+        { "ai.deepseek.harness.desk", "majiayu000" },
+        { "com.dshdesktophub.app", "flashingchen" },
+        { "com.dshcockpit.app", "lxiayu" },
+        { "io.github.citrusli2026.dsh-electron-shell", "citrusli2026" },
+        { "dev.dsh.client", "hastings0714" }
+    };
+
+    /// <summary>Returns the profile that owns the given app id. Ownership is
+    /// declared explicitly in AppIdOwner because some app ids are shared by
+    /// several repositories.</summary>
     public static VariantProfile FindByAppId(string appId)
     {
         if (string.IsNullOrEmpty(appId)) return null;
+        string owner;
+        if (AppIdOwner.TryGetValue(appId, out owner))
+        {
+            VariantProfile owned = Find(owner);
+            if (owned != null) return owned;
+        }
+        // Fallback: first profile declaring the id (covers future profiles
+        // not yet listed in AppIdOwner).
         foreach (VariantProfile p in Profiles)
         {
             foreach (string id in p.AppIds)
@@ -263,21 +310,10 @@ public static class VariantCatalog
         return best;
     }
 
-    /// <summary>Returns the profile whose repo token appears in a URL/path string.</summary>
+    /// <summary>Returns the profile whose repo token appears in a URL/path string. Delegates to Find so both entry points use the same longest-token strategy.</summary>
     public static VariantProfile FindByRepoToken(string text)
     {
-        if (string.IsNullOrWhiteSpace(text)) return null;
-        VariantProfile best = null;
-        int bestLen = 0;
-        foreach (VariantProfile p in Profiles)
-        {
-            if (p.Repo.Length > bestLen && text.IndexOf(p.Repo, StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                bestLen = p.Repo.Length;
-                best = p;
-            }
-        }
-        return best;
+        return Find(text);
     }
 }
 
@@ -290,12 +326,13 @@ public static class NameMatcher
     static string[] BuildRelatedTokens()
     {
         List<string> tokens = new List<string>();
-        string[][] sources = new string[][] { VariantCatalog.AllProcessNames, VariantCatalog.AllRoamingDirNames, VariantCatalog.AllLocalAppDataDirNames, new string[] { "DSH桌面" } };
+        string[][] sources = new string[][] { VariantCatalog.AllProcessNames, VariantCatalog.AllRoamingDirNames, VariantCatalog.AllLocalAppDataDirNames, new string[] { "DSH桌面", "DeepSeek", "deepseek-ai" } };
         foreach (string[] source in sources)
         {
             foreach (string token in source)
             {
                 if (string.IsNullOrEmpty(token)) continue;
+                if (IsBareDshToken(token)) continue; // handled by ContainsPathSegment/EqualsToken below
                 bool seen = false;
                 foreach (string existing in tokens) { if (existing.Equals(token, StringComparison.OrdinalIgnoreCase)) { seen = true; break; } }
                 if (!seen) tokens.Add(token);
@@ -313,6 +350,7 @@ public static class NameMatcher
             foreach (string token in source)
             {
                 if (string.IsNullOrEmpty(token)) continue;
+                if (IsBareDshToken(token)) continue; // handled by ContainsPathSegment/EqualsToken below
                 bool seen = false;
                 foreach (string existing in tokens) { if (existing.Equals(token, StringComparison.OrdinalIgnoreCase)) { seen = true; break; } }
                 if (!seen) tokens.Add(token);
@@ -324,16 +362,23 @@ public static class NameMatcher
     public static bool ContainsToken(string value, string[] tokens)
     {
         if (string.IsNullOrWhiteSpace(value)) return false;
-        foreach (string token in tokens)
+
+        // Whole-value match is always allowed (e.g. DisplayName "DSH Desktop").
+        if (EqualsToken(value, tokens)) return true;
+
+        // Otherwise the token must appear as a complete path segment
+        // (delimiters: \ / | ; :). Spaces are deliberately NOT delimiters,
+        // so token "DSH Desktop" does NOT match "DSH Desktop Manager" and
+        // token "DSH Desk" does NOT match "DSH Desktop". This keeps prefix
+        // / substring names like Dshield or DSH Desktop Tools from being
+        // deleted by name heuristics.
+        string[] parts = value.Split(new char[] { '\\', '/', '|', ';', ':' }, StringSplitOptions.RemoveEmptyEntries);
+        foreach (string part in parts)
         {
-            if (value.IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                return true;
-            }
+            if (EqualsToken(part, tokens)) return true;
         }
         return false;
     }
-
     public static bool EqualsToken(string value, string[] tokens)
     {
         if (string.IsNullOrWhiteSpace(value)) return false;
@@ -347,6 +392,12 @@ public static class NameMatcher
         return false;
     }
 
+    static bool IsBareDshToken(string token)
+    {
+        return token.Length <= 4 &&
+               (token.Equals("dsh", StringComparison.OrdinalIgnoreCase) ||
+                token.Equals(".dsh", StringComparison.OrdinalIgnoreCase));
+    }
     /// <summary>True when any path segment is exactly one of the given segments
     /// (case-insensitive). This lets bare dsh or .dsh folders count as DSH
     /// without making every path that merely contains dsh (e.g. dshield)
@@ -471,6 +522,7 @@ public static class LogService
     static bool available;
     static string mainPath;
     static string copyPath;
+    static readonly object writeLock = new object();
 
     public static string MainPath { get { return mainPath; } }
     public static string CopyPath { get { return copyPath; } }
@@ -478,30 +530,38 @@ public static class LogService
 
     public static void Initialize(string path)
     {
-        available = false;
-        mainPath = string.Empty;
-        copyPath = string.Empty;
-        string[] candidates = new string[] { path, GetExeDirLogPath(), GetCurrentDirLogPath() };
-        foreach (string candidate in candidates)
+        lock (writeLock)
         {
+            available = false;
+            mainPath = string.Empty;
+            copyPath = string.Empty;
+            string[] candidates = new string[] { path, GetExeDirLogPath(), GetCurrentDirLogPath() };
+            foreach (string candidate in candidates)
+            {
             if (string.IsNullOrEmpty(candidate)) continue;
             try
             {
-                string dir = Path.GetDirectoryName(candidate);
-                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
-                {
-                    Directory.CreateDirectory(dir);
-                }
-                File.WriteAllText(candidate, "===== DSH Desktop Uninstaller Log " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " =====" + Environment.NewLine);
-                mainPath = candidate;
-                available = true;
-                break;
+            string dir = Path.GetDirectoryName(candidate);
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+            {
+            Directory.CreateDirectory(dir);
+            }
+            if (File.Exists(candidate))
+            {
+            try { File.Copy(candidate, candidate + ".old", true); } catch { /* keep going; previous log preservation is best-effort */ }
+            }
+            File.WriteAllText(candidate, "===== DSH Desktop Uninstaller Log " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " =====" + Environment.NewLine);
+            mainPath = candidate;
+            available = true;
+            break;
             }
             catch
             {
+            // Intentionally empty: LogService cannot log its own failures (would recurse).
+            }
+            }
             }
         }
-    }
 
     static string GetExeDirLogPath()
     {
@@ -510,7 +570,10 @@ public static class LogService
             string dir = Path.GetDirectoryName(System.Reflection.Assembly.GetEntryAssembly().Location);
             if (!string.IsNullOrEmpty(dir)) return Path.Combine(dir, "Log.log");
         }
-        catch { }
+        catch
+            {
+                // Intentionally empty: LogService cannot log its own failures (would recurse).
+            }
         return string.Empty;
     }
 
@@ -522,37 +585,65 @@ public static class LogService
 
     public static void SetCopyPath(string path)
     {
-        copyPath = path;
+        lock (writeLock) { copyPath = path; }
+    }
+
+
+    /// <summary>Writes only the main log file under the same lock as Write,
+    /// so UI timer and worker threads never interleave partial lines.</summary>
+    public static void WriteToMainOnly(string message)
+    {
+        if (!available) return;
+        lock (writeLock)
+        {
+            try
+            {
+                File.AppendAllText(mainPath, message + Environment.NewLine);
+            }
+            catch
+            {
+                // Intentionally empty: LogService cannot log its own failures (would recurse).
+            }
+        }
     }
 
     public static void Write(string message)
     {
         if (!available) return;
-        bool wroteMain = false;
-        try
+        lock (writeLock)
         {
-            File.AppendAllText(mainPath, message + Environment.NewLine);
-            wroteMain = true;
-        }
-        catch
-        {
-        }
-        if (!string.IsNullOrEmpty(copyPath) && !copyPath.Equals(mainPath, StringComparison.OrdinalIgnoreCase))
-        {
+            bool wroteMain = false;
+            bool wroteCopy = false;
             try
             {
-                File.AppendAllText(copyPath, message + Environment.NewLine);
+                File.AppendAllText(mainPath, message + Environment.NewLine);
                 wroteMain = true;
             }
             catch
             {
+                // Intentionally empty: LogService cannot log its own failures (would recurse).
             }
-        }
-        if (!wroteMain)
-        {
-            // Last resort: try the current directory if it differs from the failed paths.
-            try { File.AppendAllText(Path.Combine(Directory.GetCurrentDirectory(), "Log.log"), message + Environment.NewLine); }
-            catch { }
+            if (!string.IsNullOrEmpty(copyPath) && !copyPath.Equals(mainPath, StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    File.AppendAllText(copyPath, message + Environment.NewLine);
+                    wroteCopy = true;
+                }
+                catch
+                {
+                    // Intentionally empty: LogService cannot log its own failures (would recurse).
+                }
+            }
+            if (!wroteMain && !wroteCopy)
+            {
+                // Last resort: try the current directory if it differs from the failed paths.
+                try { File.AppendAllText(Path.Combine(Directory.GetCurrentDirectory(), "Log.log"), message + Environment.NewLine); }
+                catch
+                {
+                    // Intentionally empty: LogService cannot log its own failures (would recurse).
+                }
+            }
         }
     }
 }
@@ -608,6 +699,28 @@ public static class PureHelpers
         return sb.ToString();
     }
 
+    /// <summary>True when a partial deletion is caused ONLY by intentionally kept
+    /// protected subtrees (no locked/access-denied files).</summary>
+    public static bool IsExpectedPartialDeletion(bool keptAny, bool skippedAny)
+    {
+        return keptAny && !skippedAny;
+    }
+
+    public static bool TryDeserializeJson<T>(string json, out T result)
+    {
+        result = default(T);
+        if (string.IsNullOrWhiteSpace(json)) return false;
+        try
+        {
+            result = new JavaScriptSerializer().Deserialize<T>(json);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public static List<string> ParsePresetNames(string value)
     {
         List<string> result = new List<string>();
@@ -622,5 +735,76 @@ public static class PureHelpers
             }
         }
         return result;
+    }
+}
+
+/// <summary>Safe path normalization for deletion targets. Pure, no I/O beyond GetFullPath.</summary>
+public static class PathSafety
+{
+    public static bool IsUnsafeRootPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return true;
+        try
+        {
+            string t = path.Trim();
+            // Device/extended-length path prefixes are never valid deletion targets here.
+            if (t.StartsWith("\\\\?\\", StringComparison.OrdinalIgnoreCase) ||
+                t.StartsWith("\\\\.\\", StringComparison.OrdinalIgnoreCase)) return true;
+            // Explicit drive-relative root forms: "C:", "C:\\" (and with trailing spaces).
+            // Any X: form that is not followed by a backslash is a drive-relative
+            // path (C:., C:foo, C:..); reject before GetFullPath resolves it
+            // against the drive's current directory.
+            if (Regex.IsMatch(t, @"^[A-Za-z]:(?!\\)")) return true;
+            if (Regex.IsMatch(t, @"^[A-Za-z]:\\?$")) return true;
+            string full = Path.GetFullPath(t);
+            string root = Path.GetPathRoot(full);
+            if (full.Equals(root, StringComparison.OrdinalIgnoreCase)) return true;
+            // Broad refuse list: profile roots and known-shell folders. Any
+            // directory under these must never be deleted as a whole.
+            List<string> refuse = new List<string>();
+            string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            string usersRoot = Path.GetDirectoryName(userProfile);
+            if (!string.IsNullOrEmpty(usersRoot)) refuse.Add(usersRoot);
+            refuse.Add(Environment.GetFolderPath(Environment.SpecialFolder.Windows));
+            refuse.Add(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles));
+            refuse.Add(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86));
+            refuse.Add(Environment.GetFolderPath(Environment.SpecialFolder.System));
+            refuse.Add(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData));
+            refuse.Add(Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory));
+            refuse.Add(Environment.GetFolderPath(Environment.SpecialFolder.CommonStartMenu));
+            refuse.Add(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
+            refuse.Add(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData));
+            refuse.Add(userProfile);
+            refuse.Add(Path.Combine(userProfile, "Documents"));
+            refuse.Add(Path.Combine(userProfile, "Desktop"));
+            refuse.Add(Path.Combine(userProfile, "Downloads"));
+            refuse.Add(Path.Combine(userProfile, "Pictures"));
+            refuse.Add(Path.Combine(userProfile, "Videos"));
+            refuse.Add(Path.Combine(userProfile, "Music"));
+            refuse.Add(Path.Combine(userProfile, "OneDrive"));
+            refuse.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Microsoft", "Windows", "Start Menu"));
+            string trimmed = full.TrimEnd('\\');
+            foreach (string s in refuse)
+            {
+                if (!string.IsNullOrEmpty(s) && trimmed.Equals(s.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
+        }
+        catch
+        {
+            return true;
+        }
+    }
+
+    public static string NormalizeDirForDelete(string dir)
+    {
+        if (string.IsNullOrWhiteSpace(dir)) return string.Empty;
+        string t = dir.Trim().Trim('"');
+        if (IsUnsafeRootPath(t)) return string.Empty;
+        string full;
+        try { full = Path.GetFullPath(t); }
+        catch { return string.Empty; }
+        if (IsUnsafeRootPath(full)) return string.Empty;
+        return full.TrimEnd('\\');
     }
 }

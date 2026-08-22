@@ -19,6 +19,7 @@ partial class DSHDesktopUninstaller
                 return result;
             }
 
+            if (IsReparsePoint(presetRoot)) { Log("  WARNING: preset root is a reparse point; refusing to recurse: " + presetRoot); return result; }
             foreach (string dir in Directory.GetDirectories(presetRoot))
             {
                 string folderName = Path.GetFileName(dir);
@@ -30,6 +31,7 @@ partial class DSHDesktopUninstaller
         {
             Log("  DetectAgentPresets failed: " + ex.Message);
         }
+        result.Sort((a, b) => string.Compare(a.FolderName, b.FolderName, StringComparison.OrdinalIgnoreCase));
         return result;
     }
 
@@ -46,10 +48,7 @@ partial class DSHDesktopUninstaller
             string name = ParseTopLevelScalar(File.ReadAllText(presetFile), "name");
             if (!string.IsNullOrWhiteSpace(name)) return name.Trim();
         }
-        catch (Exception)
-        {
-            Log("  Warning: non-fatal error ignored.");
-        }
+        catch (Exception ex) { Log("  Warning (ignored): " + ex.Message); }
 
         return Path.GetFileName(presetDir);
     }
@@ -70,15 +69,45 @@ partial class DSHDesktopUninstaller
             string k = line.Substring(0, colon).Trim();
             if (!k.Equals(key, StringComparison.OrdinalIgnoreCase)) continue;
             string v = line.Substring(colon + 1).Trim();
-            int hash = v.IndexOf('#');
-            if (hash >= 0) v = v.Substring(0, hash).TrimEnd();
-            if (v.Length >= 2 && ((v[0] == '"' && v[v.Length - 1] == '"') || (v[0] == '\'' && v[v.Length - 1] == '\'')))
+            if (v.Length >= 2 && v[0] == '"' && v[v.Length - 1] == '"')
+            {
+                v = ParseQuotedScalar(v);
+            }
+            else if (v.Length >= 2 && v[0] == '\'' && v[v.Length - 1] == '\'')
             {
                 v = v.Substring(1, v.Length - 2);
+            }
+            else
+            {
+                // Strip a trailing comment only when # is at the start of a word.
+                int hash = -1;
+                for (int ci = 0; ci < v.Length; ci++)
+                {
+                    if (v[ci] == '#' && (ci == 0 || v[ci - 1] == ' ')) { hash = ci; break; }
+                }
+                if (hash >= 0) v = v.Substring(0, hash).TrimEnd();
             }
             return v;
         }
         return null;
+    }
+
+    // Unescapes \" and \\ inside a double-quoted YAML scalar; the surrounding
+    // quotes are expected and are removed.
+    static string ParseQuotedScalar(string v)
+    {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 1; i < v.Length - 1; i++)
+        {
+            char c = v[i];
+            if (c == '\\' && i + 1 < v.Length - 1)
+            {
+                char n = v[i + 1];
+                if (n == '"' || n == '\\') { sb.Append(n); i++; continue; }
+            }
+            sb.Append(c);
+        }
+        return sb.ToString();
     }
 
     static List<PluginInfo> DetectPlugins()
@@ -137,7 +166,6 @@ partial class DSHDesktopUninstaller
             // under a top-level "dsh" key), then the package naming conventions.
             bool isDsh = pkg.ContainsKey("dsh")
                          || packageName.IndexOf("deepseek", StringComparison.OrdinalIgnoreCase) >= 0
-                         || packageName.StartsWith("dsh", StringComparison.OrdinalIgnoreCase)
                          || packageName.IndexOf("dsh-", StringComparison.OrdinalIgnoreCase) >= 0
                          || packageName.IndexOf("@dsh", StringComparison.OrdinalIgnoreCase) >= 0
                          || packageName.IndexOf("/dsh", StringComparison.OrdinalIgnoreCase) >= 0;
@@ -145,13 +173,10 @@ partial class DSHDesktopUninstaller
 
             string display = string.IsNullOrEmpty(description)
                 ? packageName
-                : packageName + " 鈥?" + description;
+                : packageName + " \u2014 " + description;
             result.Add(new PluginInfo(packageName, display));
         }
-        catch (Exception)
-        {
-            Log("  Warning: non-fatal error ignored.");
-        }
+        catch (Exception ex) { Log("  Warning (ignored): " + ex.Message); }
     }
 
     static List<SkillInfo> DetectSkills()
@@ -167,6 +192,7 @@ partial class DSHDesktopUninstaller
 
             // Skills are stored under .dsh\skills as either a subfolder (containing
             // SKILL.md etc.) or a plain .md file directly under the skills root.
+            if (IsReparsePoint(skillsRoot)) { Log("  WARNING: skills root is a reparse point; refusing to recurse: " + skillsRoot); return result; }
             foreach (string dir in Directory.GetDirectories(skillsRoot))
             {
                 string name = Path.GetFileName(dir);
@@ -191,8 +217,27 @@ partial class DSHDesktopUninstaller
     }
 
 
+    static bool IsSafePackageName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return false;
+        if (name.IndexOf("..", StringComparison.Ordinal) >= 0) return false;
+        if (name.StartsWith("/") || name.StartsWith("\\") || name.IndexOf(':') >= 0) return false;
+        foreach (char c in name)
+        {
+            bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                      (c >= '0' && c <= '9') || c == '@' || c == '/' || c == '.' || c == '_' || c == '-';
+            if (!ok) return false;
+        }
+        return true;
+    }
+
     static string FindPluginSourceDir(string webModules, string packageName)
     {
+        if (!IsSafePackageName(packageName))
+        {
+            Log("  Skipping unsafe plugin package name: " + packageName);
+            return string.Empty;
+        }
         string relative = packageName.Replace('/', Path.DirectorySeparatorChar);
         string candidate = Path.Combine(webModules, relative);
         return Directory.Exists(candidate) ? candidate : string.Empty;
@@ -281,9 +326,9 @@ partial class DSHDesktopUninstaller
             string name = Path.GetFileName(Path.GetFullPath(dir));
             return name.Equals(".dsh", StringComparison.OrdinalIgnoreCase);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-                Log("  Warning: non-fatal error ignored.");
+                Log("  Warning (ignored): " + ex.Message);
             return false;
         }
     }
@@ -292,17 +337,22 @@ partial class DSHDesktopUninstaller
     {
         try
         {
-            if (string.IsNullOrWhiteSpace(dir) || IsUnsafeRootPath(dir)) return false;
+            if (string.IsNullOrWhiteSpace(dir) || PathSafety.IsUnsafeRootPath(dir)) return false;
             string full = Path.GetFullPath(dir);
-            string name = Path.GetFileName(full);
-            if (name.Equals(".dsh", StringComparison.OrdinalIgnoreCase)) return true;
+            FileAttributes attr = File.GetAttributes(full);
+            if ((attr & FileAttributes.ReparsePoint) != 0)
+            {
+                Log("  WARNING: refusing DSH home that is a reparse point/junction: " + dir);
+                return false;
+            }
+            if (IsDshHomeName(Path.GetFileName(full))) return true;
             return Directory.Exists(Path.Combine(full, ".agent-presets"))
-                || Directory.Exists(Path.Combine(full, "sessions"))
-                || Directory.Exists(Path.Combine(full, "skills"));
+                && Directory.Exists(Path.Combine(full, "sessions"))
+                && Directory.Exists(Path.Combine(full, "skills"));
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            Log("  Warning: non-fatal error ignored.");
+            Log("  Warning (ignored): " + ex.Message);
             return false;
         }
     }
@@ -373,7 +423,9 @@ partial class DSHDesktopUninstaller
             Log("  Keeping other .dsh user data (graph-memory/storages/profiles 等): " + DshHome);
         }
 
-        string[] dirs = Directory.GetDirectories(DshHome);
+        string[] dirs = new string[0];
+        try { dirs = Directory.GetDirectories(DshHome); }
+        catch (Exception ex) { Log("  Warning: cannot enumerate DSH home subdirectories: " + ex.Message); }
         foreach (string dir in dirs)
         {
             bool isPreset = dir.Equals(presetRoot, StringComparison.OrdinalIgnoreCase);
@@ -392,10 +444,13 @@ partial class DSHDesktopUninstaller
                 continue;
             }
 
+              if (IsReparsePoint(dir)) { Log("  Skipping reparse point subdir (link only, never follow): " + dir); continue; }
             DeleteDirectoryWithRetry(dir);
         }
 
-        string[] files = Directory.GetFiles(DshHome);
+        string[] files = new string[0];
+        try { files = Directory.GetFiles(DshHome); }
+        catch (Exception ex) { Log("  Warning: cannot enumerate DSH home files: " + ex.Message); }
         foreach (string file in files)
         {
             if (keepAppSettings && IsSettingsFile(file))
@@ -439,59 +494,98 @@ partial class DSHDesktopUninstaller
                 keep.Add(info.FolderName);
             }
         }
-        foreach (string dir in Directory.GetDirectories(presetRoot))
+        try
         {
-            string name = Path.GetFileName(dir);
-            if (!keep.Contains(name))
+            foreach (string dir in Directory.GetDirectories(presetRoot))
             {
-                Log("  Removing agent preset: " + name);
-                DeleteDirectoryWithRetry(dir);
+                string name = Path.GetFileName(dir);
+                if (!keep.Contains(name))
+                {
+                    Log("  Removing agent preset: " + name);
+                    if (IsReparsePoint(dir)) { Log("  Skipping reparse point preset subdir: " + dir); continue; }
+                    DeleteDirectoryWithRetry(dir);
+                }
             }
         }
-
-        foreach (string file in Directory.GetFiles(presetRoot))
+        catch (Exception ex) { Log("  Warning in KeepSelectedPresets (enumerate dirs): " + ex.Message); }
+        try
         {
-            DeleteFileIfExists(file);
+            // Preset root files are not themselves presets (a preset is a
+            // subfolder). Only remove known preset metadata files and keep
+            // unknown files (README, config, etc.) so user data is not lost.
+            foreach (string file in Directory.GetFiles(presetRoot))
+            {
+                string ext = Path.GetExtension(file);
+                if (string.Equals(ext, ".yml", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(ext, ".yaml", StringComparison.OrdinalIgnoreCase))
+                {
+                    Log("  Removing preset root metadata file: " + Path.GetFileName(file));
+                    DeleteFileIfExists(file);
+                }
+                else
+                {
+                    Log("  Keeping unknown preset-root file: " + Path.GetFileName(file));
+                }
+            }
         }
+        catch (Exception ex) { Log("  Warning in KeepSelectedPresets (enumerate files): " + ex.Message); }
     }
-
     static void KeepSelectedSkills(string skillsRoot, List<string> names)
     {
         HashSet<string> keep = new HashSet<string>(names, StringComparer.OrdinalIgnoreCase);
 
-        foreach (string dir in Directory.GetDirectories(skillsRoot))
+        try
         {
-            string name = Path.GetFileName(dir);
-            if (!keep.Contains(name))
+            foreach (string dir in Directory.GetDirectories(skillsRoot))
             {
-                Log("  Removing skill: " + name);
-                DeleteDirectoryWithRetry(dir);
+                string name = Path.GetFileName(dir);
+                if (!keep.Contains(name))
+                {
+                    Log("  Removing skill: " + name);
+                    if (IsReparsePoint(dir)) { Log("  Skipping reparse point skill subdir: " + dir); continue; }
+                    DeleteDirectoryWithRetry(dir);
+                }
             }
         }
+        catch (Exception ex) { Log("  Warning in KeepSelectedSkills (enumerate dirs): " + ex.Message); }
 
-        foreach (string file in Directory.GetFiles(skillsRoot))
+        try
         {
-            string name = Path.GetFileNameWithoutExtension(file);
-            if (!keep.Contains(name))
+            foreach (string file in Directory.GetFiles(skillsRoot))
             {
-                Log("  Removing skill: " + name);
-                DeleteFileIfExists(file);
+                string ext = Path.GetExtension(file);
+                if (!string.Equals(ext, ".md", StringComparison.OrdinalIgnoreCase))
+                {
+                    Log("  Keeping unknown skills-root file: " + Path.GetFileName(file));
+                    continue;
+                }
+                string name = Path.GetFileNameWithoutExtension(file);
+                if (!keep.Contains(name))
+                {
+                    Log("  Removing skill: " + name);
+                    DeleteFileIfExists(file);
+                }
             }
         }
+        catch (Exception ex) { Log("  Warning in KeepSelectedSkills (enumerate files): " + ex.Message); }
     }
-
-    // Copies one plugin plus its declared dependencies from the same
-    // node_modules tree, so the preserved plugin can actually load. Symlinks /
-    // junctions are skipped to avoid following a reparse point out of the tree.
     static bool CopyPluginWithDependencies(string webModules, string destRoot, string packageName, HashSet<string> visited)
     {
         if (visited.Contains(packageName)) return false;
-        visited.Add(packageName);
-
         string src = FindPluginSourceDir(webModules, packageName);
         if (string.IsNullOrEmpty(src)) return false;
+        visited.Add(packageName);
 
         string dest = Path.Combine(destRoot, packageName.Replace('/', Path.DirectorySeparatorChar));
+        // Path-traversal guard: the final destination must stay inside destRoot.
+        string destFull = Path.GetFullPath(dest).TrimEnd('\\');
+        string rootFull = Path.GetFullPath(destRoot).TrimEnd('\\');
+        if (!destFull.StartsWith(rootFull + "\\", StringComparison.OrdinalIgnoreCase) &&
+            !destFull.Equals(rootFull, StringComparison.OrdinalIgnoreCase))
+        {
+            Log("  Skipping plugin copy outside runtime root: " + packageName);
+            return false;
+        }
         if (Directory.Exists(dest))
         {
             Log("  Plugin already exists in runtime: " + packageName);
@@ -511,8 +605,19 @@ partial class DSHDesktopUninstaller
             if (string.IsNullOrEmpty(depSrc)) continue;
             try
             {
-                CopyPluginWithDependencies(webModules, destRoot, dep, visited);
-                Log("  Preserved dependency: " + dep + " (for " + packageName + ")");
+                bool depCopied = CopyPluginWithDependencies(webModules, destRoot, dep, visited);
+                if (depCopied)
+                {
+                    Log("  Preserved dependency: " + dep + " (for " + packageName + ")");
+                }
+                else if (visited.Contains(dep))
+                {
+                    Log("  Dependency already present: " + dep + " (for " + packageName + ")");
+                }
+                else
+                {
+                    Log("  Skipped dependency (source not found): " + dep + " (for " + packageName + ")");
+                }
             }
             catch (Exception ex)
             {
@@ -553,11 +658,24 @@ partial class DSHDesktopUninstaller
 
     static void CopyDirectory(string sourceDir, string destDir)
     {
+        if (IsReparsePoint(sourceDir))
+        {
+            Log("  Skipping reparse point source during copy: " + sourceDir);
+            return;
+        }
         Directory.CreateDirectory(destDir);
         foreach (string file in Directory.GetFiles(sourceDir))
         {
             string destFile = Path.Combine(destDir, Path.GetFileName(file));
-            File.Copy(file, destFile, true);
+            try
+            {
+                File.Copy(file, destFile, true);
+            }
+            catch (Exception ex)
+            {
+                // A single locked file must not abort the whole plugin copy; skip it and keep the rest (same policy as DeleteDirectorySafe).
+                Log("  Warning: could not copy " + file + ": " + ex.Message);
+            }
         }
         foreach (string sub in Directory.GetDirectories(sourceDir))
         {
@@ -570,32 +688,57 @@ partial class DSHDesktopUninstaller
                     continue;
                 }
             }
-            catch (Exception)
-            {
-                Log("  Warning: non-fatal error ignored.");
-            }
+            catch (Exception ex) { Log("  Warning (ignored): " + ex.Message); }
             CopyDirectory(sub, Path.Combine(destDir, Path.GetFileName(sub)));
         }
+    }
+
+    static bool IsReparsePoint(string path)
+    {
+        try
+        {
+            return (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
+        }
+        catch { return true; }
     }
 
     static void CleanupTemp()
     {
         Log("  Cleaning temp dsh-* directories...");
         string temp = Path.GetTempPath();
+        string selfPath = string.Empty;
+        string selfDir = string.Empty;
+        try { selfPath = System.Reflection.Assembly.GetEntryAssembly().Location; selfDir = Path.GetDirectoryName(selfPath); } catch (Exception ex) { Log("  Warning (ignored): " + ex.Message); }
         try
         {
-            foreach (string d in Directory.GetDirectories(temp, "dsh*"))
+            foreach (string d in Directory.GetDirectories(temp, "dsh-*"))
             {
                 string name = Path.GetFileName(d);
                 // Delete every "dsh-" prefixed temp directory: the prefix is
                 // reserved for this application family (spill, subprocess,
                 // tauri pages, uninstaller temp copies, etc.).
-                bool nameMatch = name.StartsWith("dsh-", StringComparison.OrdinalIgnoreCase);
+                bool nameMatch = name.StartsWith("dsh-uninstaller-", StringComparison.OrdinalIgnoreCase)
+                              || name.StartsWith("dsh-spill-", StringComparison.OrdinalIgnoreCase)
+                              || name.StartsWith("dsh-desktop-", StringComparison.OrdinalIgnoreCase);
 
 
                 if (!nameMatch)
                 {
                     Log("  Skipping non-DSH temp: " + d + " (nameMatch=False)");
+                    continue;
+                }
+
+                // Never delete the directory the currently running uninstaller
+                // lives in (self-relocation temp copy). Otherwise cleanup of
+                // that running-exe directory always fails and bumps failureCount,
+                // which turns a successful /S uninstall into exit code 1.
+                string selfFull = string.IsNullOrEmpty(selfDir) ? string.Empty : Path.GetFullPath(selfDir).TrimEnd('\\');
+                string candFull = string.IsNullOrEmpty(d) ? string.Empty : Path.GetFullPath(d).TrimEnd('\\');
+                if (!string.IsNullOrEmpty(candFull) &&
+                    (candFull.Equals(selfFull, StringComparison.OrdinalIgnoreCase) ||
+                     (!string.IsNullOrEmpty(selfFull) && selfFull.StartsWith(candFull + "\\", StringComparison.OrdinalIgnoreCase))))
+                {
+                    Log("  Skipping temp dir that contains the running uninstaller: " + d);
                     continue;
                 }
 
