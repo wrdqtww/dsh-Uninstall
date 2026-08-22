@@ -100,3 +100,8 @@ dsh-Uninstall/
 
 - 卸载会删除 DSH / DeepSeek Harness 桌面端产生的用户数据及会话记录，请提前备份需要的内容。
 - 运行时只依赖 Windows 自带 .NET Framework 4.x，不需要额外安装或附带 DLL。
+
+## 贡献者
+
+- wrdqtww
+- DeepSeek
