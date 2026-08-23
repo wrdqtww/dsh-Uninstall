@@ -87,10 +87,9 @@ dsh-Uninstall/
 ├── DSH_Desktop_Uninstaller.Gui.cs             # 确认弹窗 / 保留项复选列表 / 进度窗口
 ├── DSH_Desktop_卸载说明.txt                     # 详细使用/卸载说明
 ├── embed-icon-in-exe.ps1                      # 构建时把图标写入 exe
-├── make-uninstaller-icon.ps1                  # 从 PNG 生成多尺寸 ICO（仅开发用）
 ├── Uninstall_DSH_Desktop.exe                  # 预编译的单文件卸载器
 ├── Uninstall_DSH_Desktop_icon.ico             # 卸载器图标
-├── Uninstall_DSH_Desktop_icon_preview.png
+├── back/                                      # 历史版本归档（子文件夹=版本名称，存放对应版本源码）
 ├── build-uninstaller.ps1                      # 一键构建脚本（自动编译根目录全部 .cs）
 ├── README.md
 └── .gitignore
