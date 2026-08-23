@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -72,7 +72,7 @@ partial class DSHDesktopUninstaller
     static string[] KnownRoamingDirNames { get { return variantRoamingDirNames ?? AllRoamingDirNames; } }
     static string[] KnownLocalAppDataDirNames { get { return variantLocalAppDataDirNames ?? AllLocalAppDataDirNames; } }
     static string[] TargetAppIds { get { return variantAppIds ?? VariantCatalog.AllAppIds; } }
-    static string[] KnownInstallDirNames { get { return variantInstallDirNames ?? new string[0]; } }
+      static string[] KnownInstallDirNames { get { return variantInstallDirNames ?? VariantCatalog.AllInstallDirNames; } }
 
 
         // KnownAppIds was merged into VariantCatalog.AllAppIds (see DSH_Desktop_Uninstaller.Core.cs).
@@ -359,7 +359,7 @@ static List<string> UnknownArgs = new List<string>();
     static List<string> residualItems = new List<string>();
 
     // Version shown in the log so a support report can reproduce behavior.
-    static readonly string UninstallerVersion = "1.6";
+    static readonly string UninstallerVersion = "1.5";
 
     // Prefetched in ConfirmAndSelectRetention so the GUI constructor performs
     // no synchronous disk I/O and the progress window opens instantly.
@@ -615,6 +615,19 @@ static List<string> UnknownArgs = new List<string>();
         // profile matched), resolve the install directory.
         DshInstallDirs = SafeResolveDshInstallDirs();
         DshInstallDir = DshInstallDirs.Count > 0 ? DshInstallDirs[0] : string.Empty;
+          // Always merge running-install detection: a second running DSH
+          // desktop installed outside registry/known locations must still
+          // be cleaned. AddInstallDir deduplicates case-insensitively.
+          List<string> runningDirs = FindRunningDshInstallDirs();
+          foreach (string runningDir in runningDirs)
+          {
+              if (!DshInstallDirs.Contains(runningDir, StringComparer.OrdinalIgnoreCase))
+              {
+                  DshInstallDirs.Add(runningDir);
+                  Log("  Adding detected running install dir: " + runningDir);
+              }
+          }
+          DshInstallDir = DshInstallDirs.Count > 0 ? DshInstallDirs[0] : string.Empty;
 
         // Stage 2b: if the profile .dsh-runtime does not exist yet, prefer an
         // install dir that carries its own .dsh-runtime subdirectory.
@@ -1316,20 +1329,22 @@ static void ParseArgs(string[] args)
         });
         UpdateProgress(22);
 
-        RunStep("[3/9] Deleting known extra directories", delegate
-        {
-            foreach (string dir in GetKnownExtraDirectories())
-            {
-                if (string.IsNullOrEmpty(dir)) continue;
-                bool isInstall = false;
-                foreach (string idir in DshInstallDirs)
-                {
-                    if (!string.IsNullOrEmpty(idir) && dir.Equals(idir, StringComparison.OrdinalIgnoreCase)) { isInstall = true; break; }
-                }
-                if (isInstall) continue;
-                if (Directory.Exists(dir)) DeleteDirectoryWithRetry(dir);
-            }
-        });
+          RunStep("[3/9] Deleting known extra directories", delegate
+          {
+              foreach (string dir in GetKnownExtraDirectories())
+              {
+                  if (string.IsNullOrEmpty(dir)) continue;
+                  bool isInstall = false;
+                  foreach (string idir in DshInstallDirs)
+                  {
+                      if (!string.IsNullOrEmpty(idir) && dir.Equals(idir, StringComparison.OrdinalIgnoreCase)) { isInstall = true; break; }
+                  }
+                  if (isInstall) continue;
+                  if (!string.IsNullOrEmpty(DshHome) && dir.Equals(Path.GetFullPath(DshHome).TrimEnd('\\'), StringComparison.OrdinalIgnoreCase)) { Log("  Skipping user-data path in extra directories: " + dir); continue; }
+                  if (!string.IsNullOrEmpty(DshRuntime) && dir.Equals(Path.GetFullPath(DshRuntime).TrimEnd('\\'), StringComparison.OrdinalIgnoreCase)) { Log("  Skipping runtime path in extra directories: " + dir); continue; }
+                  if (Directory.Exists(dir)) DeleteDirectoryWithRetry(dir);
+              }
+          });
         UpdateProgress(33);
 
         RunStep("[4/9] Deleting DSH shortcuts and registry entries", delegate
@@ -1337,6 +1352,8 @@ static void ParseArgs(string[] args)
             DeleteKnownDshShortcuts();
             DeleteRegistryKeys();
             CleanupRunKeys();
+              DeleteDshServices();
+              DeleteDshScheduledTasks();
         });
         UpdateProgress(44);
 
@@ -1351,51 +1368,70 @@ static void ParseArgs(string[] args)
         RunStep("[6/9] Preserving selected plugins", delegate { PreserveSelectedPlugins(); });
         UpdateProgress(66);
 
-        RunStep("[7/9] Cleaning DSH user data", delegate { CleanDshHome(); });
+          RunStep("[7/9] Cleaning DSH user data", delegate { CleanDshHome(); CleanupOtherUserProfiles(); });
         UpdateProgress(77);
 
-        RunStep("[8/9] Cleaning runtime", delegate
-        {
-            if (!keepRuntime)
-            {
-                string safeRuntime = PathSafety.NormalizeDirForDelete(DshRuntime);
-                if (!IsLikelyDshRuntime(safeRuntime))
-                {
-                    LogAndCountFail("  Refusing to delete runtime path without runtime evidence: " + safeRuntime);
-                }
-                else
-                {
-                    DeleteDirectoryWithRetry(safeRuntime);
-                }
-            }
-            foreach (string dir in DshInstallDirs)
-            {
-                if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) continue;
-                try
-                {
-                    if (Directory.GetDirectories(dir).Length == 0 && Directory.GetFiles(dir).Length == 0)
-                    {
-                        Directory.Delete(dir, false);
-                        Log("  Removed empty install-directory shell: " + dir);
-                    }
-                }
-                catch (Exception ex) { Log("  Warning: could not remove empty install-directory shell " + dir + ": " + ex.Message); }
-            }
-        });
+          RunStep("[8/9] Cleaning runtime", delegate
+          {
+              if (!keepRuntime)
+              {
+                  string safeRuntime = PathSafety.NormalizeDirForDelete(DshRuntime);
+                  if (string.IsNullOrEmpty(safeRuntime) || !Directory.Exists(safeRuntime))
+                  {
+                      Log("  Runtime not present (skip): " + DshRuntime);
+                  }
+                  else if (Directory.GetFiles(safeRuntime).Length == 0 && Directory.GetDirectories(safeRuntime).Length == 0 && IsDshRuntimeName(Path.GetFileName(safeRuntime.TrimEnd('\\'))))
+                  {
+                      Log("  Empty DSH runtime directory by name; deleting: " + safeRuntime);
+                      DeleteDirectoryWithRetry(safeRuntime);
+                  }
+                  else if (IsLikelyDshRuntime(safeRuntime))
+                  {
+                      DeleteDirectoryWithRetry(safeRuntime);
+                  }
+                  else
+                  {
+                      LogAndCountFail("  Refusing to delete runtime path without runtime evidence: " + safeRuntime);
+                  }
+              }
+              foreach (string dir in DshInstallDirs)
+              {
+                  if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) continue;
+                  try
+                  {
+                      if (Directory.GetDirectories(dir).Length == 0 && Directory.GetFiles(dir).Length == 0)
+                      {
+                          Directory.Delete(dir, false);
+                          Log("  Removed empty install-directory shell: " + dir);
+                      }
+                  }
+                  catch (Exception ex) { Log("  Warning: could not remove empty install-directory shell " + dir + ": " + ex.Message); }
+              }
+          });
         UpdateProgress(88);
 
-        RunStep("[9/9] Cleaning temp files and scanning residuals", delegate
-        {
-            CleanupTemp();
-            residualItems = RunResidualScan();
-            foreach (string r in residualItems)
-            {
-                if (r.StartsWith("[RESIDUAL]", StringComparison.OrdinalIgnoreCase))
-                {
-                    LogAndCountFail("  Residual found: " + r);
-                }
-            }
-        });
+          RunStep("[9/9] Cleaning temp files and scanning residuals", delegate
+          {
+              foreach (string dir in DshInstallDirs)
+              {
+                  if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) continue;
+                  try
+                  {
+                      if (Directory.GetDirectories(dir).Length == 0 && Directory.GetFiles(dir).Length == 0)
+                      {
+                          Directory.Delete(dir, false);
+                          Log("  Removed empty install-directory shell: " + dir);
+                      }
+                  }
+                  catch (Exception ex) { Log("  Warning: could not remove empty install-directory shell " + dir + ": " + ex.Message); }
+              }
+              CleanupTemp();
+              residualItems = RunResidualScan();
+              foreach (string r in residualItems)
+              {
+                      if (!r.StartsWith("[INFO-CUSTOM]", StringComparison.OrdinalIgnoreCase)) LogAndCountFail("  Residual found: " + r); else Log("    " + r);
+              }
+          });
         UpdateProgress(100);
 
         Log("");
@@ -1560,6 +1596,109 @@ static void ParseArgs(string[] args)
             Log("Failed to write JSON report: " + ex.Message);
         }
     }
+      // Enumerate other Windows user profiles and clean their DSH user data,
+      // per-user install dirs and shortcuts. Per-user registry hives are NOT
+      // loaded offline (risk of corrupting NTUSER.DAT); only the current
+      // user HKCU and HKLM are cleaned by DeleteRegistryKeys.
+      static void CleanupOtherUserProfiles()
+      {
+          Log("  Cleaning other user profiles...");
+          string usersRoot = Path.GetDirectoryName(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+          if (string.IsNullOrEmpty(usersRoot) || !Directory.Exists(usersRoot)) { Log("  Users root not found; skipping other profiles."); return; }
+          string currentProfile = string.Empty;
+          try { currentProfile = Path.GetFullPath(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)).TrimEnd('\\'); } catch (Exception ex) { Log("  Warning (ignored): " + ex.Message); }
+          string[] skipNames = new string[] { "Public", "Default", "Default User", "All Users" };
+          try
+          {
+              foreach (string profileDir in Directory.GetDirectories(usersRoot))
+              {
+                  string name = Path.GetFileName(profileDir);
+                  bool skip = false;
+                  foreach (string s in skipNames) if (name.Equals(s, StringComparison.OrdinalIgnoreCase)) { skip = true; break; }
+                  if (skip) continue;
+                  string full = string.Empty;
+                  try { full = Path.GetFullPath(profileDir).TrimEnd('\\'); } catch (Exception ex) { Log("  Warning (ignored): " + ex.Message); continue; }
+                  if (!string.IsNullOrEmpty(currentProfile) && full.Equals(currentProfile, StringComparison.OrdinalIgnoreCase)) continue;
+
+                  // DSH home directories: .dsh, .dsh-*, .dsh_*
+                  try
+                  {
+                      foreach (string homeDir in Directory.GetDirectories(profileDir))
+                      {
+                            if (!IsDshHomeName(Path.GetFileName(homeDir)) || !IsSafeDshHome(homeDir)) { Log("  Skipping other-user home dir (not a verified DSH home): " + homeDir); continue; }
+                          if (IsReparsePoint(homeDir)) { Log("  Skipping reparse point other-user home: " + homeDir); continue; }
+                          Log("  Deleting other-user DSH home: " + homeDir);
+                          DeleteDirectoryWithRetry(homeDir);
+                      }
+                  }
+                  catch (Exception ex) { Log("  Warning: could not enumerate other-user home dirs under " + profileDir + ": " + ex.Message); }
+
+                  // Per-user AppData install/userData directories.
+                  string roaming = Path.Combine(profileDir, "AppData", "Roaming");
+                  string local = Path.Combine(profileDir, "AppData", "Local");
+                  foreach (string nm in VariantCatalog.AllRoamingDirNames)
+                  {
+                      string d = Path.Combine(roaming, nm);
+                      if (Directory.Exists(d) && (IsLikelyDshDirectory(d) || IsLikelyDshUserDataDirectory(d))) { Log("  Deleting other-user roaming data: " + d); DeleteDirectoryWithRetry(d); }
+                  }
+                  foreach (string nm in VariantCatalog.AllLocalAppDataDirNames)
+                  {
+                      string d = Path.Combine(local, nm);
+                      if (Directory.Exists(d) && (IsLikelyDshDirectory(d) || IsLikelyDshUserDataDirectory(d) || IsLikelyDshEdgeAppDirectory(d))) { Log("  Deleting other-user local data: " + d); DeleteDirectoryWithRetry(d); }
+                      string dp = Path.Combine(local, "Programs", nm);
+                      if (Directory.Exists(dp) && (HasDshExecutable(dp) || IsLikelyDshDirectory(dp))) { Log("  Deleting other-user Programs install: " + dp); DeleteDirectoryWithRetry(dp); }
+                  }
+
+
+                    // Per-user runtime, updater dirs, npm package, temp dsh-* dirs.
+                    string otherRuntime = Path.Combine(profileDir, ".dsh-runtime");
+                    if (Directory.Exists(otherRuntime) && (IsDshRuntimeName(Path.GetFileName(otherRuntime)) || IsLikelyDshRuntime(otherRuntime))) { Log("  Deleting other-user runtime: " + otherRuntime); DeleteDirectoryWithRetry(otherRuntime); }
+                    foreach (string nm in AllUpdaterDirNames)
+                    {
+                        string d = Path.Combine(local, nm);
+                        if (Directory.Exists(d) && (IsLikelyDshDirectory(d) || HasDshExecutable(d))) { Log("  Deleting other-user updater dir: " + d); DeleteDirectoryWithRetry(d); }
+                    }
+                    string otherNpm = Path.Combine(roaming, "npm", "node_modules", "@deepseek-ai", "dsh");
+                    if (Directory.Exists(otherNpm) && (IsLikelyDshNpmPackageDirectory(otherNpm) || IsLikelyDshDirectory(otherNpm))) { Log("  Deleting other-user npm DSH package: " + otherNpm); DeleteDirectoryWithRetry(otherNpm); }
+                    string otherTemp = Path.Combine(local, "Temp");
+                    try
+                    {
+                        if (Directory.Exists(otherTemp))
+                        {
+                            foreach (string d in Directory.GetDirectories(otherTemp, "dsh-*", SearchOption.TopDirectoryOnly))
+                            {
+                                Log("  Deleting other-user temp dir: " + d);
+                                DeleteDirectoryWithRetry(d);
+                            }
+                        }
+                    }
+                    catch (Exception ex) { Log("  Warning: could not scan other-user temp: " + ex.Message); }
+
+                  // Desktop and Start Menu shortcuts.
+                  string desktop = Path.Combine(profileDir, "Desktop");
+                  string startMenu = Path.Combine(profileDir, "AppData", "Roaming", "Microsoft", "Windows", "Start Menu", "Programs");
+                  string[] roots = new string[] { desktop, startMenu };
+                  foreach (string root in roots)
+                  {
+                      if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) continue;
+                      try
+                      {
+                          foreach (string file in Directory.GetFiles(root, "*.lnk", SearchOption.AllDirectories))
+                          {
+                              bool known = false;
+                                foreach (string kn in VariantCatalog.AllShortcutNames) if (kn.Equals(Path.GetFileName(file), StringComparison.OrdinalIgnoreCase)) { known = true; break; }
+                                if (!known) continue;
+                                string otherTarget = ResolveShortcutTarget(file);
+                                if (string.IsNullOrEmpty(otherTarget) || IsDshShortcutTarget(otherTarget)) { Log("  Deleting other-user DSH shortcut: " + file + " (target: " + (string.IsNullOrEmpty(otherTarget) ? "unknown" : otherTarget) + ")"); DeleteFileIfExists(file); } else { Log("  Skipping other-user same-name shortcut (target not DSH): " + file + " -> " + otherTarget); }
+                          }
+                      }
+                      catch (Exception ex) { Log("  Warning: could not scan other-user shortcuts " + root + ": " + ex.Message); }
+                  }
+              }
+          }
+          catch (Exception ex) { Log("  Warning: could not enumerate other user profiles: " + ex.Message); }
+      }
+
     static IEnumerable<string> GetKnownExtraDirectories()
     {
         if (CachedExtraDirectories != null) return CachedExtraDirectories;
@@ -1570,20 +1709,20 @@ static void ParseArgs(string[] args)
 
         // Updater directories are DSH-specific names, but verify existing ones
         // before deleting so a user's own same-named folder is never removed.
-        foreach (string name in KnownUpdaterDirNames)
+        foreach (string name in AllUpdaterDirNames)
         {
             AddVerifiedUpdaterDir(dirs, Path.Combine(localAppData, name));
         }
         // Generic per-user/per-machine folders must be verified to actually be
         // DSH installs before they are added, so a user's own same-named folder
         // (e.g. "%USERPROFILE%\DSH Desktop") is never deleted by mistake.
-        foreach (string name in KnownLocalAppDataDirNames)
+        foreach (string name in VariantCatalog.AllLocalAppDataDirNames)
         {
             AddVerifiedDshDir(dirs, Path.Combine(localAppData, name));
             AddVerifiedDshDir(dirs, Path.Combine(localAppData, "Programs", name));
             AddVerifiedDshDir(dirs, Path.Combine(userProfile, name));
         }
-        foreach (string name in KnownRoamingDirNames)
+        foreach (string name in VariantCatalog.AllRoamingDirNames)
         {
             AddVerifiedDshDir(dirs, Path.Combine(appData, name));
         }
@@ -1612,7 +1751,7 @@ static void ParseArgs(string[] args)
     {
         if (string.IsNullOrEmpty(dir)) return;
         if (!Directory.Exists(dir)) { Log("  Skipping non-existent updater directory: " + dir); return; }
-        if (IsLikelyDshDirectory(dir) || HasDshExecutable(dir) || HasDshSignature(dir))
+        if (IsLikelyDshDirectory(dir) || HasDshExecutable(dir))
         {
             dirs.Add(dir); Log("  Verified DSH updater directory: " + dir); return;
         }
@@ -1798,6 +1937,17 @@ static void ParseArgs(string[] args)
         return false;
     }
 
+      static string QuoteTargetPathForArgs(string targetPath)
+      {
+          if (string.IsNullOrEmpty(targetPath)) return string.Empty;
+          if (targetPath.IndexOf(" ") >= 0 || targetPath.IndexOf('\t') >= 0)
+          {
+              return '"' + targetPath + '"';
+          }
+
+          return targetPath;
+      }
+
     static string ResolveShortcutTarget(string lnkPath)
     {
         try
@@ -1814,7 +1964,7 @@ static void ParseArgs(string[] args)
                     object arguments = shortcut.GetType().InvokeMember("Arguments", BindingFlags.GetProperty, null, shortcut, null);
                     string targetPath = target as string ?? string.Empty;
                     string args = arguments as string ?? string.Empty;
-                    if (!string.IsNullOrWhiteSpace(args)) return (targetPath + " " + args).Trim();
+                      if (!string.IsNullOrWhiteSpace(args)) return (QuoteTargetPathForArgs(targetPath) + " " + args).Trim();
                     return targetPath;
                 }
                 finally { Marshal.FinalReleaseComObject(shortcut); }
@@ -1832,22 +1982,27 @@ static void ParseArgs(string[] args)
     // "\"C:\\Program Files\\App\\app.exe\" --flag". Only the first token is
     // used for ownership checks, so quoted paths and extra arguments never
     // break Path.GetFullPath.
-    static string ExtractShortcutExePath(string target)
-    {
-        if (string.IsNullOrWhiteSpace(target)) return string.Empty;
-        string t = target.Trim();
-        if (t.StartsWith("\""))
-        {
-            int end = t.IndexOf('"', 1);
-            return end > 1 ? t.Substring(1, end - 1) : string.Empty;
-        }
-        int space = t.IndexOf(' ');
-        return space > 0 ? t.Substring(0, space) : t;
-    }
+      static string ExtractShortcutExePath(string target)
+      {
+          if (string.IsNullOrWhiteSpace(target)) return string.Empty;
+          // Whole target may itself be an existing file (no arguments).
+          string trimmed = target.Trim();
+          if (File.Exists(trimmed)) return Path.GetFullPath(trimmed);
+          // Reuse the robust command-line parser (CommandLineToArgvW).
+          string exe = ParseExePathFromCommandLine(target);
+          if (!string.IsNullOrEmpty(exe)) return exe;
+          return string.Empty;
+      }
+
     static bool IsDshShortcutTarget(string target)
     {
         if (string.IsNullOrWhiteSpace(target)) return false;
-        string t = ExtractShortcutExePath(target);
+          string raw = target.Trim();
+          // edge-shortcut variant targets wscript.exe "...\dsh-edge-app\launcher.vbs";
+          // the exe-only extraction below would lose that signal.
+          if (raw.IndexOf("dsh-edge-app", StringComparison.OrdinalIgnoreCase) >= 0 &&
+              raw.IndexOf("launcher.vbs", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+        string t = ExtractShortcutExePath(raw);
         if (string.IsNullOrEmpty(t)) return false;
         foreach (string dir in DshInstallDirs)
         {
@@ -1855,8 +2010,6 @@ static void ParseArgs(string[] args)
         }
         if (!string.IsNullOrEmpty(DshRuntime) && IsPathUnderAny(t, new string[] { DshRuntime })) return true;
         if (!string.IsNullOrEmpty(DshHome) && IsPathUnderAny(t, new string[] { DshHome })) return true;
-        if (t.IndexOf("dsh-edge-app", StringComparison.OrdinalIgnoreCase) >= 0) return true;
-        if (t.IndexOf("launcher.vbs", StringComparison.OrdinalIgnoreCase) >= 0) return true;
         return false;
     }
 
@@ -1889,18 +2042,23 @@ static void ParseArgs(string[] args)
                     }
                     if (!isKnown) continue;
 
-                    string target = ResolveShortcutTarget(file);
-                    if (IsDshShortcutTarget(target))
-                    {
-                        Log("  Deleting known shortcut: " + file + " (target: " + target + ")");
-                        DeleteFileIfExists(file);
+                      string target = ResolveShortcutTarget(file);
+                      if (string.IsNullOrEmpty(target))
+                      {
+                          Log("  Deleting known shortcut with unresolved target: " + file);
+                          DeleteFileIfExists(file);
+                      }
+                      else if (IsDshShortcutTarget(target))
+                      {
+                          Log("  Deleting known shortcut: " + file + " (target: " + target + ")");
+                          DeleteFileIfExists(file);
+                      }
+                        else
+                        {
+                            Log("  Skipping same-name shortcut (target not DSH): " + file + " (target: " + target + ")");
+                        }
                     }
-                    else
-                    {
-                        Log("  Skipping same-name shortcut (target not DSH): " + file + " (target: " + (string.IsNullOrEmpty(target) ? "unknown" : target) + ", exePath: " + ExtractShortcutExePath(target) + ", installDirs: " + DshInstallDirs.Count + ")");
-                    }
-                }
-            }
+              }
             catch (Exception ex)
             {
                 LogAndCountFail("  Failed to scan shortcut root " + root + ": " + ex.Message);
@@ -1937,7 +2095,8 @@ static void ParseArgs(string[] args)
                     if (isKnown) continue;
                     string target = ResolveShortcutTarget(file);
                     if (!IsDshShortcutTarget(target)) continue;
-                    residual.Add("Custom shortcut: " + file + " -> " + target);
+                      residual.Add("[INFO-CUSTOM] Custom shortcut: " + file + " -> " + target);
+                      Log("    [INFO] Custom shortcut (report only, not deleted): " + file + " -> " + target);
                     Log("    [RESIDUAL] Custom shortcut (report only, not deleted): " + file + " -> " + target);
                 }
             }

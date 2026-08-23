@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -318,13 +318,42 @@ partial class DSHDesktopUninstaller
         return !string.IsNullOrEmpty(name) && name.StartsWith(".credentials.yaml", StringComparison.OrdinalIgnoreCase);
     }
 
+      static bool IsKnownDshDataDirName(string name)
+      {
+          if (string.IsNullOrWhiteSpace(name)) return false;
+          string n = name.Trim();
+          return n.Equals(".agent-presets", StringComparison.OrdinalIgnoreCase)
+              || n.Equals("sessions", StringComparison.OrdinalIgnoreCase)
+              || n.Equals("skills", StringComparison.OrdinalIgnoreCase)
+              || n.Equals("graph-memory", StringComparison.OrdinalIgnoreCase)
+              || n.Equals("hotplug-hub", StringComparison.OrdinalIgnoreCase)
+              || n.Equals("memory", StringComparison.OrdinalIgnoreCase)
+              || n.Equals("plugin-src", StringComparison.OrdinalIgnoreCase)
+              || n.Equals("profiles", StringComparison.OrdinalIgnoreCase)
+              || n.Equals("storages", StringComparison.OrdinalIgnoreCase)
+              || n.Equals("super-injector", StringComparison.OrdinalIgnoreCase)
+              || n.Equals(".dsh-runtime", StringComparison.OrdinalIgnoreCase)
+              || n.Equals("bin", StringComparison.OrdinalIgnoreCase)
+              || n.Equals("node_modules", StringComparison.OrdinalIgnoreCase)
+              || n.Equals("dsh", StringComparison.OrdinalIgnoreCase);
+      }
+
+      static bool IsKnownDshDataFileName(string name)
+      {
+          if (string.IsNullOrWhiteSpace(name)) return false;
+          return name.StartsWith("settings.yaml", StringComparison.OrdinalIgnoreCase)
+              || name.StartsWith(".credentials.yaml", StringComparison.OrdinalIgnoreCase)
+              || name.Equals(".anonymous-user-id", StringComparison.OrdinalIgnoreCase)
+              || name.Equals("extension.json", StringComparison.OrdinalIgnoreCase);
+      }
+
     static bool IsDotDshRoot(string dir)
     {
         try
         {
             if (string.IsNullOrWhiteSpace(dir)) return false;
             string name = Path.GetFileName(Path.GetFullPath(dir));
-            return name.Equals(".dsh", StringComparison.OrdinalIgnoreCase);
+              return IsDshHomeName(name);
         }
         catch (Exception ex)
         {
@@ -444,6 +473,11 @@ partial class DSHDesktopUninstaller
                 continue;
             }
 
+              if (!IsDotDshRoot(DshHome) && !IsKnownDshDataDirName(Path.GetFileName(dir)))
+              {
+                  Log("  Skipping non-DSH subdir in custom DSH_HOME root: " + dir);
+                  continue;
+              }
               if (IsReparsePoint(dir)) { Log("  Skipping reparse point subdir (link only, never follow): " + dir); continue; }
             DeleteDirectoryWithRetry(dir);
         }
@@ -465,6 +499,11 @@ partial class DSHDesktopUninstaller
             {
                 continue;
             }
+              if (!IsDotDshRoot(DshHome) && !IsKnownDshDataFileName(Path.GetFileName(file)))
+              {
+                  Log("  Skipping non-DSH file in custom DSH_HOME root: " + file);
+                  continue;
+              }
             DeleteFileIfExists(file);
         }
 
@@ -717,9 +756,7 @@ partial class DSHDesktopUninstaller
                 // Delete every "dsh-" prefixed temp directory: the prefix is
                 // reserved for this application family (spill, subprocess,
                 // tauri pages, uninstaller temp copies, etc.).
-                bool nameMatch = name.StartsWith("dsh-uninstaller-", StringComparison.OrdinalIgnoreCase)
-                              || name.StartsWith("dsh-spill-", StringComparison.OrdinalIgnoreCase)
-                              || name.StartsWith("dsh-desktop-", StringComparison.OrdinalIgnoreCase);
+                  bool nameMatch = name.StartsWith("dsh-", StringComparison.OrdinalIgnoreCase);
 
 
                 if (!nameMatch)

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -192,7 +192,7 @@ partial class DSHDesktopUninstaller
                     // Exe name matched but the path is not inside any detected
                     // install directory. Never kill by name alone: report it
                     // as a residual candidate and skip (silent counts it).
-                    LogAndCountFail("  DSH-named process outside detected install dirs; skipping kill: " + p.ProcessName + " (PID " + p.Id + ", path " + path + ")");
+                    Log("  DSH-named process outside detected install dirs; skipping kill (not a cleanup failure): " + p.ProcessName + " (PID " + p.Id + ", path " + path + ")");
                     return false;
                 }
 
@@ -559,7 +559,7 @@ partial class DSHDesktopUninstaller
         catch (Exception ex)
         {
             // Scan failure is not a cleanup failure: WMI unavailability must not turn a successful uninstall into exit code 1.
-            residual.Add("Service scan error: " + ex.Message);
+              Log("  Warning (ignored): service scan failed -> " + ex.Message);
         }
     }
 
@@ -573,21 +573,102 @@ partial class DSHDesktopUninstaller
             {
                 foreach (string line in File.ReadAllLines(file))
                 {
-                    if (line.IndexOf("DSH", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                        line.IndexOf("DeepSeek", StringComparison.OrdinalIgnoreCase) >= 0)
-                    {
-                        residual.Add("Scheduled task: " + line);
-                    }
+                      string taskName = line.Split(new char[] { ',' })[0].Trim().Trim('"');
+                      if (IsDshScheduledTaskName(taskName))
+                      {
+                          residual.Add("Scheduled task: " + taskName);
+                      }
                 }
             }
         }
         catch (Exception ex)
         {
             // Scan failure is not a cleanup failure: schtasks/CSV issues must not turn a successful uninstall into exit code 1.
-            residual.Add("Scheduled task scan error: " + ex.Message);
+              Log("  Warning (ignored): scheduled task scan failed -> " + ex.Message);
         }
         try { if (File.Exists(file)) File.Delete(file); } catch (Exception ex) { Log("  Warning: could not delete scheduled-task CSV: " + ex.Message); }
     }
+
+      static void DeleteDshServices()
+      {
+          Log("  Deleting DSH Windows services...");
+          try
+          {
+              using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("SELECT Name, DisplayName FROM Win32_Service"))
+              {
+                  foreach (ManagementObject mo in searcher.Get())
+                  {
+                      using (mo)
+                      {
+                          string name = (mo["Name"] ?? "").ToString();
+                          string display = (mo["DisplayName"] ?? "").ToString();
+                          if (!IsDshRelatedName(name) && !IsDshRelatedName(display)) continue;
+                          Log("  Stopping DSH service: " + name);
+                          int stopCode = RunCommandAndLog("sc.exe", "stop \"" + name + "\"", 30000, false);
+                          if (stopCode != 0) Log("  Warning: sc stop returned " + stopCode + " for service " + name);
+                          int delCode = RunCommandAndLog("sc.exe", "delete \"" + name + "\"", 30000, false);
+                          if (delCode != 0) LogAndCountFail("  Failed to delete DSH service: " + name);
+                          else Log("  Deleted DSH service: " + name);
+                      }
+                  }
+              }
+          }
+          catch (Exception ex)
+          {
+              Log("  Warning (ignored): service cleanup scan failed -> " + ex.Message);
+          }
+      }
+
+      static bool IsDshScheduledTaskName(string taskName)
+      {
+          if (string.IsNullOrWhiteSpace(taskName)) return false;
+          if (NameMatcher.ContainsToken(taskName, VariantCatalog.AllProcessNames)) return true;
+          if (NameMatcher.ContainsToken(taskName, AllUpdaterDirNames)) return true;
+          if (NameMatcher.ContainsToken(taskName, VariantCatalog.AllInstallDirNames)) return true;
+          // CSV task names are not path-like; also allow substring hits for
+          // specific long tokens (e.g. "DSH Desktop Update" contains "DSH Desktop").
+          foreach (string token in VariantCatalog.AllProcessNames)
+          {
+              if (token.Length >= 6 && taskName.IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+          }
+          foreach (string token in AllUpdaterDirNames)
+          {
+              if (token.Length >= 6 && taskName.IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+          }
+          foreach (string token in VariantCatalog.AllInstallDirNames)
+          {
+              if (token.Length >= 6 && taskName.IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+          }
+          return false;
+      }
+
+      static void DeleteDshScheduledTasks()
+      {
+          Log("  Deleting DSH scheduled tasks...");
+          string file = Path.Combine(Path.GetTempPath(), "dsh-uninstaller-schtasks-" + Guid.NewGuid().ToString("N").Substring(0, 8) + ".csv");
+          int code = RunCommandAndLog("cmd.exe", "/C schtasks /query /fo csv /nh > \"" + file + "\"", 30000, false);
+          try
+          {
+              if (code == 0 && File.Exists(file))
+              {
+                  foreach (string line in File.ReadAllLines(file))
+                  {
+                        string taskName = line.Split(new char[] { ',' })[0].Trim().Trim('"');
+                        if (!IsDshScheduledTaskName(taskName)) continue;
+                        if (string.IsNullOrEmpty(taskName)) continue;
+                      Log("  Deleting DSH scheduled task: " + taskName);
+                      int delCode = RunCommandAndLog("schtasks.exe", "/delete /tn \"" + taskName + "\" /f", 30000, false);
+                      if (delCode != 0) LogAndCountFail("  Failed to delete DSH scheduled task: " + taskName);
+                      else Log("  Deleted DSH scheduled task: " + taskName);
+                  }
+              }
+          }
+          catch (Exception ex)
+          {
+              Log("  Warning (ignored): scheduled task cleanup failed -> " + ex.Message);
+          }
+          try { if (File.Exists(file)) File.Delete(file); } catch (Exception ex) { Log("  Warning: could not delete scheduled-task CSV: " + ex.Message); }
+      }
 
     static void DeleteRegSubKey(RegistryKey root, string subKey, string label)
     {
@@ -790,6 +871,11 @@ partial class DSHDesktopUninstaller
               expanded.Equals(dir.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase) ||
                 trimmed.StartsWith(dir.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase)) return true;
         }
+          if (DshInstallDirs.Count == 0 && Directory.Exists(expanded) && HasDshInstallEvidence(expanded))
+          {
+              Log("  PATH entry bound to verified DSH directory (no install dirs detected); deleting: " + trimmed);
+              return true;
+          }
         // Name tokens NEVER authorize deletion by themselves: they only
         // serve as a report hint below. Deletion is strictly limited to
         // entries bound to DshInstallDirs, DshRuntime\\node or DshHome\\bin
@@ -894,8 +980,10 @@ partial class DSHDesktopUninstaller
             LogAndCountFail("  Failed to delete VIPSHOME: " + ex.Message);
         }
 
-        TryRemoveEnvVar(Registry.CurrentUser, "DSH_HOME");
-        TryRemoveEnvVar(Registry.LocalMachine, "DSH_HOME");
+          TryRemoveEnvVar(Registry.CurrentUser, "DSH_HOME", DshHome);
+          TryRemoveEnvVar(Registry.LocalMachine, "DSH_HOME", DshHome);
+          TryRemoveEnvVar(Registry.CurrentUser, "DSH_RUNTIME", DshRuntime);
+          TryRemoveEnvVar(Registry.LocalMachine, "DSH_RUNTIME", DshRuntime);
     }
 
     static string NormalizeEnvPath(string value)
@@ -913,7 +1001,7 @@ partial class DSHDesktopUninstaller
             return (value ?? string.Empty).Trim().Trim('\u0022').TrimEnd('\u005C');
         }
     }
-        static void TryRemoveEnvVar(RegistryKey root, string name)
+      static void TryRemoveEnvVar(RegistryKey root, string name, string expectedPath)
     {
         try
         {
@@ -928,16 +1016,16 @@ partial class DSHDesktopUninstaller
                 }
                 string val = raw.ToString().Trim().Trim('"');
                 string normalizedVal = NormalizeEnvPath(val);
-                string normalizedHome = NormalizeEnvPath(DshHome);
-                if (!string.IsNullOrEmpty(normalizedHome) && normalizedVal.Equals(normalizedHome, StringComparison.OrdinalIgnoreCase))
-                {
-                    key.DeleteValue(name, false);
-                    Log("  Deleted " + name + " (matched DSH user data path): " + val);
-                }
-                else
-                {
-                    Log("  Kept " + name + " (value does not match DSH user data path): " + val);
-                }
+                  string normalizedExpected = NormalizeEnvPath(expectedPath);
+                  if (!string.IsNullOrEmpty(normalizedExpected) && normalizedVal.Equals(normalizedExpected, StringComparison.OrdinalIgnoreCase))
+                  {
+                      key.DeleteValue(name, false);
+                      Log("  Deleted " + name + " (matched expected path): " + val);
+                  }
+                  else
+                  {
+                      Log("  Kept " + name + " (value does not match expected path): " + val);
+                  }
             }
         }
         catch (Exception ex)

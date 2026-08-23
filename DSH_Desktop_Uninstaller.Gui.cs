@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -304,6 +304,8 @@ partial class DSHDesktopUninstaller
         private bool updatingPluginState;
         private bool hasPresets;
         private bool hasPlugins;
+          private bool runtimeAutoCheckedByPlugins;
+          private bool runtimeUserTouched;
 
         public bool KeepAgentPresets { get { return chkPresets.CheckState != CheckState.Unchecked; } }
         public bool KeepRuntime { get { return chkRuntime.Checked || chkPlugins.CheckState != CheckState.Unchecked; } }
@@ -455,21 +457,26 @@ partial class DSHDesktopUninstaller
                 setUpdating(true);
                 try
                 {
-                    if (chk.CheckState == CheckState.Checked)
-                    {
-                        SetAllItems(clb, true);
-                        if (autoCheckRuntime) chkRuntime.Checked = true;
-                    }
-                    else if (chk.CheckState == CheckState.Unchecked)
-                    {
-                        SetAllItems(clb, false);
-                    }
-                    clb.Enabled = chk.CheckState != CheckState.Unchecked && hasItems();
-                }
-                finally
-                {
-                    setUpdating(false);
-                }
+                      if (chk.CheckState == CheckState.Checked)
+                      {
+                          SetAllItems(clb, true);
+                          if (autoCheckRuntime) { chkRuntime.Checked = true; runtimeAutoCheckedByPlugins = true; }
+                      }
+                      else if (chk.CheckState == CheckState.Unchecked)
+                      {
+                          SetAllItems(clb, false);
+                          if (autoCheckRuntime && runtimeAutoCheckedByPlugins && !runtimeUserTouched)
+                          {
+                              chkRuntime.Checked = false;
+                          }
+                          runtimeAutoCheckedByPlugins = false;
+                      }
+                      clb.Enabled = chk.CheckState != CheckState.Unchecked && hasItems();
+                      }
+                      finally
+                      {
+                          setUpdating(false);
+                      }
             };
         }
 
@@ -673,7 +680,7 @@ partial class DSHDesktopUninstaller
             int descY = titleY + 36;
             int modeY = descY + 54;
             int grpY = modeY + 78;
-            int btnY = grpY + 390 + 6;
+              int btnY = grpY + 500 + 6;
             ClientSize = new Size(520, btnY + 30 + 20);
             Label lblCurrentDsh = new Label();
 
@@ -716,10 +723,10 @@ partial class DSHDesktopUninstaller
 
             GroupBox grp = new GroupBox();
             grp.Text = "可选保留项";
-            grp.SetBounds(22, grpY, 476, 390);
+              grp.SetBounds(22, grpY, 476, 500);
 
             Panel pnlOptions = new Panel();
-            pnlOptions.SetBounds(8, 20, 458, 358);
+              pnlOptions.SetBounds(8, 20, 458, 470);
             pnlOptions.AutoScroll = true;
 
             chkPresets = new GrayableCheckBox();
@@ -849,6 +856,7 @@ partial class DSHDesktopUninstaller
             chkRuntime = new CheckBox();
             chkRuntime.Text = "保留 .dsh-runtime（DSH CLI 运行时）";
             chkRuntime.SetBounds(18, 516, 440, 24);
+              chkRuntime.Click += delegate { runtimeUserTouched = true; };
 
             pnlOptions.Controls.Add(chkPresets);
             pnlOptions.Controls.Add(clbPresets);

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -124,6 +124,7 @@ public static class VariantCatalog
     public static readonly string[] AllShortcutNames = BuildNameUnion(p => p.ShortcutNames, ExtraShortcutNames);
     public static readonly string[] AllRoamingDirNames = BuildNameUnion(p => p.RoamingDirNames, ExtraRoamingDirNames);
     public static readonly string[] AllLocalAppDataDirNames = BuildNameUnion(p => p.LocalAppDataDirNames, ExtraLocalAppDataDirNames);
+      public static readonly string[] AllInstallDirNames = BuildNameUnion(p => p.InstallDirNames, new string[0]);
 
     static string[] BuildNameUnion(Func<VariantProfile, string[]> selector, string[] extra)
     {

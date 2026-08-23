@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -38,7 +38,7 @@ partial class DSHDesktopUninstaller
         try
         {
             string currentDir = Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
-            if (!string.IsNullOrEmpty(currentDir) && (HasDshExecutable(currentDir) || HasDshSignature(currentDir)))
+            if (!string.IsNullOrEmpty(currentDir) && HasDshExecutable(currentDir))
             {
                 AddInstallDir(dirs, currentDir);
             }
@@ -72,10 +72,18 @@ partial class DSHDesktopUninstaller
     static List<string> FindDshInstallDirsInVariantLocations()
     {
         List<string> dirs = new List<string>();
-        string[] names = KnownInstallDirNames;
+        string[] names = VariantCatalog.AllInstallDirNames;
         if (names == null || names.Length == 0) return dirs;
 
         List<string> roots = new List<string>();
+            try { roots.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs")); } catch (Exception ex) { Log("  Warning (ignored): " + ex.Message); }
+            try { roots.Add(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)); } catch (Exception ex) { Log("  Warning (ignored): " + ex.Message); }
+            try { roots.Add(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86)); } catch (Exception ex) { Log("  Warning (ignored): " + ex.Message); }
+            try { roots.Add(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)); } catch (Exception ex) { Log("  Warning (ignored): " + ex.Message); }
+            try { roots.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs")); } catch (Exception ex) { Log("  Warning (ignored): " + ex.Message); }
+            try { roots.Add(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)); } catch (Exception ex) { Log("  Warning (ignored): " + ex.Message); }
+            try { roots.Add(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86)); } catch (Exception ex) { Log("  Warning (ignored): " + ex.Message); }
+            try { roots.Add(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)); } catch (Exception ex) { Log("  Warning (ignored): " + ex.Message); }
         try { roots.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs")); } catch (Exception ex) { Log("  Warning in FindDshInstallDirsInVariantLocations: " + ex.Message); }
         try { roots.Add(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)); } catch (Exception ex) { Log("  Warning in FindDshInstallDirsInVariantLocations: " + ex.Message); }
         try { roots.Add(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)); } catch (Exception ex) { Log("  Warning in FindDshInstallDirsInVariantLocations: " + ex.Message); }
@@ -89,7 +97,7 @@ partial class DSHDesktopUninstaller
             {
                 if (string.IsNullOrEmpty(name)) continue;
                 string dir = Path.Combine(root, name);
-                if (Directory.Exists(dir) && (HasDshExecutable(dir) || HasDshSignature(dir)))
+                if (Directory.Exists(dir) && HasDshInstallEvidence(dir))
                 {
                     Log("Using variant install path: " + dir);
                     AddInstallDir(dirs, dir);
@@ -110,7 +118,7 @@ partial class DSHDesktopUninstaller
             }
             string dir = ResolveInstallDirFromRegistryEntry(info.DisplayIcon, info.UninstallString, info.QuietUninstallString, info.InstallLocation, info.BundleCachePath);
             if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return;
-            if (HasDshExecutable(dir) || HasDshSignature(dir))
+            if (HasDshInstallEvidence(dir))
             {
                 AddInstallDir(knownExeCandidates, dir);
             }
@@ -124,18 +132,36 @@ partial class DSHDesktopUninstaller
         return result;
     }
 
+    [DllImport("shell32.dll", SetLastError = true)]
+    static extern IntPtr CommandLineToArgvW([MarshalAs(UnmanagedType.LPWStr)] string lpCmdLine, out int pNumArgs);
+
     static string ParseExePathFromCommandLine(string commandLine)
     {
         if (string.IsNullOrWhiteSpace(commandLine)) return null;
-        string cmd = commandLine.Trim();
-        if (cmd.StartsWith("\""))
+        try
         {
-            int end = cmd.IndexOf('\"', 1);
-            if (end > 0) return cmd.Substring(1, end - 1);
+            int count;
+            IntPtr argv = CommandLineToArgvW(commandLine.Trim(), out count);
+            if (argv == IntPtr.Zero || count <= 0) return null;
+            try
+            {
+                string first = Marshal.PtrToStringUni(Marshal.ReadIntPtr(argv, 0));
+                return string.IsNullOrWhiteSpace(first) ? null : first;
+            }
+            finally
+            {
+                LocalFree(argv);
+            }
         }
-        int space = cmd.IndexOf(' ');
-        return space > 0 ? cmd.Substring(0, space) : cmd;
+        catch (Exception ex)
+        {
+            Log("  Warning in ParseExePathFromCommandLine: " + ex.Message);
+            return null;
+        }
     }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern IntPtr LocalFree(IntPtr hMem);
 
     static string ResolveInstallDirFromRegistryEntry(string displayIcon, string uninstallString, string quietUninstallString, string installLocation, string bundleCachePath)
     {
@@ -193,20 +219,25 @@ partial class DSHDesktopUninstaller
     static string ParseDirFromDisplayIcon(string displayIcon)
     {
         if (string.IsNullOrWhiteSpace(displayIcon)) return string.Empty;
-        string iconPath = displayIcon.Split(',')[0].Trim().Trim('"');
+        // DisplayIcon is usually "path,index". Paths may contain commas, so split
+        // from the LAST comma (the icon index is the final numeric suffix).
+        string iconPath = displayIcon.Trim();
+        int lastComma = iconPath.LastIndexOf(",");
+        if (lastComma > 0) iconPath = iconPath.Substring(0, lastComma);
+        iconPath = iconPath.Trim().Trim((char)34).Trim();
         if (string.IsNullOrEmpty(iconPath)) return string.Empty;
         string dir = Path.GetDirectoryName(iconPath);
         if (string.IsNullOrEmpty(dir)) return string.Empty;
         return dir;
     }
-
     static List<string> FindDshInstallDirsInKnownLocations()
     {
         List<string> dirs = new List<string>();
         List<string> roots = new List<string>();
-        try { roots.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs")); } catch (Exception ex) { Log("  Warning in FindDshInstallDirsInKnownLocations: " + ex.Message); }
-        try { roots.Add(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)); } catch (Exception ex) { Log("  Warning in FindDshInstallDirsInKnownLocations: " + ex.Message); }
-        try { roots.Add(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86)); } catch (Exception ex) { Log("  Warning in FindDshInstallDirsInKnownLocations: " + ex.Message); }
+          try { roots.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs")); } catch (Exception ex) { Log("  Warning (ignored): " + ex.Message); }
+          try { roots.Add(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)); } catch (Exception ex) { Log("  Warning (ignored): " + ex.Message); }
+          try { roots.Add(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86)); } catch (Exception ex) { Log("  Warning (ignored): " + ex.Message); }
+          try { roots.Add(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)); } catch (Exception ex) { Log("  Warning (ignored): " + ex.Message); }
 
         foreach (string root in roots)
         {
@@ -216,7 +247,7 @@ partial class DSHDesktopUninstaller
                 foreach (string dir in Directory.GetDirectories(root))
                 {
                     string name = Path.GetFileName(dir);
-                    if (IsDshRelatedName(name) && (HasDshExecutable(dir) || HasDshSignature(dir)))
+                    if (IsDshRelatedName(name) && HasDshInstallEvidence(dir))
                     {
                         AddInstallDir(dirs, dir);
                     }
@@ -229,19 +260,19 @@ partial class DSHDesktopUninstaller
         List<string> directCandidates = new List<string>();
         string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        foreach (string name in KnownLocalAppDataDirNames)
+          foreach (string name in VariantCatalog.AllLocalAppDataDirNames)
         {
             directCandidates.Add(Path.Combine(localAppData, name));
             directCandidates.Add(Path.Combine(localAppData, "Programs", name));
             directCandidates.Add(Path.Combine(userProfile, name));
         }
-        foreach (string name in KnownRoamingDirNames)
+          foreach (string name in VariantCatalog.AllRoamingDirNames)
         {
             directCandidates.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), name));
         }
         foreach (string dir in directCandidates)
         {
-            if (Directory.Exists(dir) && (HasDshExecutable(dir) || HasDshSignature(dir)))
+            if (Directory.Exists(dir) && HasDshInstallEvidence(dir))
             {
                 AddInstallDir(dirs, dir);
             }
@@ -317,7 +348,7 @@ partial class DSHDesktopUninstaller
                 catch (Exception ex) { Log("  Warning (ignored): " + ex.Message); }
 
                 string dir = Path.GetDirectoryName(path);
-                if (!string.IsNullOrEmpty(dir) && (HasDshExecutable(dir) || HasDshSignature(dir)))
+                if (!string.IsNullOrEmpty(dir) && HasDshInstallEvidence(dir))
                 {
                     AddInstallDir(dirs, dir);
                 }
@@ -332,19 +363,25 @@ partial class DSHDesktopUninstaller
         return dirs;
     }
 
-    static string ResolveVariantLabel()
-    {
-        string registryLabel = ResolveVariantLabelFromRegistry();
-        if (!string.IsNullOrEmpty(registryLabel)) return registryLabel;
+      static string ResolveVariantLabel()
+      {
+          string registryLabel = ResolveVariantLabelFromRegistry();
+          if (!string.IsNullOrEmpty(registryLabel)) return registryLabel;
 
-        string dir = DshInstallDir;
-        if (string.IsNullOrEmpty(dir)) dir = DetectedRunningDshDir;
+          List<string> runningDirs = FindRunningDshInstallDirs();
+          foreach (string runningDir in runningDirs)
+          {
+              string dirLabel = ResolveLabelFromPath(runningDir);
+              if (!string.IsNullOrWhiteSpace(dirLabel)) return dirLabel;
+          }
 
-        string label = ResolveLabelFromPath(dir);
-        if (!string.IsNullOrEmpty(label)) return label;
+          string dir = DshInstallDir;
+          if (string.IsNullOrEmpty(dir)) dir = DetectedRunningDshDir;
+          string label = ResolveLabelFromPath(dir);
+          if (!string.IsNullOrEmpty(label)) return label;
 
-        return "未知";
-    }
+          return "\u672a\u77e5";
+      }
 
     static List<string> ResolveAllVariantLabels()
     {
@@ -354,11 +391,17 @@ partial class DSHDesktopUninstaller
             if (!string.IsNullOrWhiteSpace(label) && !labels.Contains(label, StringComparer.OrdinalIgnoreCase)) labels.Add(label);
         }
 
-        string dir = DshInstallDir;
-        if (string.IsNullOrEmpty(dir)) dir = DetectedRunningDshDir;
+          List<string> runningDirs = FindRunningDshInstallDirs();
+          foreach (string runningDir in runningDirs)
+          {
+              string runningLabel = ResolveLabelFromPath(runningDir);
+              if (!string.IsNullOrWhiteSpace(runningLabel) && !labels.Contains(runningLabel, StringComparer.OrdinalIgnoreCase)) labels.Add(runningLabel);
+          }
 
-        string dirLabel = ResolveLabelFromPath(dir);
-        if (!string.IsNullOrWhiteSpace(dirLabel) && !labels.Contains(dirLabel, StringComparer.OrdinalIgnoreCase)) labels.Add(dirLabel);
+          string dir = DshInstallDir;
+          if (string.IsNullOrEmpty(dir)) dir = DetectedRunningDshDir;
+          string dirLabel = ResolveLabelFromPath(dir);
+          if (!string.IsNullOrWhiteSpace(dirLabel) && !labels.Contains(dirLabel, StringComparer.OrdinalIgnoreCase)) labels.Add(dirLabel);
 
         if (labels.Count == 0) labels.Add("\u672a\u77e5");
         return labels;
@@ -586,8 +629,8 @@ partial class DSHDesktopUninstaller
             data.dwStateAction = 1; // WTD_STATEACTION_VERIFY
             data.dwProvFlags = 0x10; // WTD_CACHE_ONLY_URL_RETRIEVAL
             uint result = WinVerifyTrust(IntPtr.Zero, WinTrustActionGenericVerifyV2, ref data);
-            uint closing = WinVerifyTrust(IntPtr.Zero, WinTrustActionGenericVerifyV2, ref data);
-            Marshal.FreeHGlobal(data.pFile);
+                data.dwStateAction = 2; // WTD_STATEACTION_CLOSE
+                WinVerifyTrust(IntPtr.Zero, WinTrustActionGenericVerifyV2, ref data); // closing; best-effort handle release
             Marshal.FreeCoTaskMem(pPath);
             return result == 0;
         }
@@ -597,6 +640,13 @@ partial class DSHDesktopUninstaller
             return false;
         }
     }
+
+      // Stronger install-dir evidence used by directory scans: a known exe
+      // or the no-exe edge-shortcut variant (launcher.vbs + deepseek.ico).
+      static bool HasDshInstallEvidence(string dir)
+      {
+          return HasDshExecutable(dir) || IsLikelyDshEdgeAppDirectory(dir);
+      }
 
     static bool HasDshExecutable(string dir)
     {
